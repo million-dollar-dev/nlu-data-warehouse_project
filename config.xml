@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <databases>
+        <database name="controls">
+            <hostname>dpg-csocqvq3esus73emq5jg-a.singapore-postgres.render.com</hostname>
+            <port>5432</port>
+            <database>controls</database>
+            <username>sa</username>
+            <password>1guDvvOywwP7VLEOJdoOl8z6TBnhEr3n</password>
+        </database>
+        <database name="staging">
+            <hostname>dpg-csoqdqt6l47c7393u110-a.singapore-postgres.render.com</hostname>
+            <port>5432</port>
+            <database>staging_8i3l</database>
+            <username>root</username>
+            <password>gHnOGiRGn7krJJZeZcFr1YrttM6Rphji</password>
+        </database>
+    </databases>
+
+    <file_configs>
+        <file_config>
+            <name>mắt kính việt tín</name>
+            <sources>
+                <source>https://kinhmatviettin.vn/</source>
+            </sources>
+            <source_file_location>E:\Documents\NLU\DataWarehouse\project\daily_data</source_file_location>
+            <destination_table_staging>matkinh_daily</destination_table_staging>
+            <destination_table_dw>matkinh</destination_table_dw>
+        </file_config>
+		<file_config>
+            <name>mắt kính việt tín</name>
+            <sources>
+                <source>https://kinhmatviettin.vn/</source>
+            </sources>
+            <source_file_location>E:\Documents\NLU\DataWarehouse\project\monthly_data</source_file_location>
+            <destination_table_staging>matkinh_mothly</destination_table_staging>
+            <destination_table_dw>matkinh</destination_table_dw>
+        </file_config>
+		<file_config>
+            <name>mắt kính việt tín</name>
+            <sources>
+                <source>https://kinhmatviettin.vn/</source>
+            </sources>
+            <source_file_location>E:\Documents\NLU\DataWarehouse\project\monthly_data</source_file_location>
+            <destination_table_staging>matkinh_mothly</destination_table_staging>
+            <destination_table_dw>matkinh</destination_table_dw>
+        </file_config>
+		<file_config>
+            <name>mắt kính việt tín2</name>
+            <sources>
+                <source>https://kinhmatviettin.vn/</source>
+            </sources>
+            <source_file_location>E:\Documents\NLU\DataWarehouse\project\monthly_data</source_file_location>
+            <destination_table_staging>matkinh_mothly</destination_table_staging>
+            <destination_table_dw>matkinh</destination_table_dw>
+        </file_config>
+    </file_configs>
+</configuration>

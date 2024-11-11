@@ -3,6 +3,10 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import re
 from datetime import datetime
+import sys
+import os
+import subprocess
+
 # Hàm lấy danh sách link sản phẩm từ trang danh mục
 def get_product_links(page_url):
     response = requests.get(page_url)
@@ -48,7 +52,6 @@ def get_product_details(product_url):
         # Xử lý xuất xứ chỉ lấy tên quốc gia
         if "Xuất xứ" in desc_text:
             origin = desc_text.split("Xuất xứ:")[1].split("•")[0].split()[0].strip()
-        print(origin)
     # Lấy số lượng sản phẩm có sẵn, chỉ giữ lại số
     quantity = soup.find('div', class_='number-items-available')
     quantity_available = ''.join(filter(str.isdigit, quantity.text)) if quantity else "Không xác định"
@@ -67,16 +70,24 @@ def get_product_details(product_url):
     }
 
 # Hàm chính để duyệt qua các trang danh mục và cào dữ liệu tất cả sản phẩm
-def scrape_all_products_to_csv():
+def scrape_all_products_to_csv(source_file_location):
     all_products = []
     base_url = "https://kinhmatviettin.vn/product-categories/gong-kinh?page="
-    total_pages = 5  # Số trang cần duyệt
+    total_pages = 1  # Số trang cần duyệt
     # Lấy ngày hiện tại để tạo tên file
     current_date = datetime.now().strftime("%Y-%m-%d")
     # Lấy phần domain của base_url cho tên file
     domain_name = base_url.split("//")[1].split("/")[0]
     # Tạo tên file theo format yêu cầu
     csv_filename = f"daily_data_{current_date}_{domain_name}.csv"
+    
+    # Đảm bảo rằng thư mục lưu file tồn tại, nếu không tạo mới
+    if not os.path.exists(source_file_location):
+        os.makedirs(source_file_location)
+    
+    # Tạo đường dẫn đầy đủ cho file CSV
+    csv_filepath = os.path.join(source_file_location, csv_filename)
+    
     # Lặp qua từng trang danh mục
     for page in range(1, total_pages + 1):
         page_url = f"{base_url}{page}"
@@ -84,25 +95,59 @@ def scrape_all_products_to_csv():
         
         product_links = get_product_links(page_url)
         
-        
         # Lặp qua từng link sản phẩm để lấy thông tin chi tiết
         for product_url in product_links:
             print(f"Fetching details for: {product_url}")
             product_details = get_product_details(product_url)
             all_products.append(product_details)
-            
     
-    #Lưu dữ liệu vào file CSV
+    # Lưu dữ liệu vào file CSV
     df = pd.DataFrame(all_products)
-    df.to_csv(csv_filename, index=False, encoding='utf-8')
-    print(f"Data saved to {csv_filename}")
+    df.to_csv(csv_filepath, index=False, encoding='utf-8')
+    print(f"Data saved to {csv_filepath}")
     print(f"Total products scraped: {len(all_products)}")
-           
+    
+    # Trả về đường dẫn đầy đủ của file đã lưu
+    return csv_filepath
 
 def format_description_text(text):
     # Biểu thức chính quy kiểm tra và thêm "•" trước "Thông tinNK và PP:" nếu chưa có
     pattern = r"(•\s*)?Thông tin"
     formatted_text = re.sub(pattern, r"• Thông tin", text)
     return formatted_text
-# Chạy hàm chính để bắt đầu quá trình cào dữ liệu
-scrape_all_products_to_csv()
+
+# Kiểm tra tham số đầu vào và gọi hàm cào dữ liệu
+if __name__ == "__main__":
+
+    if len(sys.argv) == 2:
+        # Trường hợp 1: Chỉ nhận vào source_file_location
+        source_file_location = sys.argv[1]
+        print("Calling scrape_all_products_to_csv()")
+        result_file = scrape_all_products_to_csv(source_file_location)
+        print(f"Scraping completed. File saved at: {result_file}")
+    elif len(sys.argv) == 4:
+        # Trường hợp 2: Nhận vào 3 tham số: id_config, source_file_location, config_path
+        id_config = sys.argv[1]
+        source_file_location = sys.argv[2]
+        config_path = sys.argv[3]
+
+        # Đường dẫn tới script insert_to_logs_script.py
+        script_path = os.path.join(os.path.dirname(__file__), "insert_to_file_logs_script.py")
+        result_file = scrape_all_products_to_csv(source_file_location)
+        print(f"Running insert_to_file_logs_script.py with parameters: {id_config}, {result_file}, {config_path}")
+        try:
+            subprocess.run(
+                [sys.executable, script_path, id_config, result_file, config_path],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            print("insert_to_logs_script.py executed successfully.")
+        except subprocess.CalledProcessError as e:
+            print(f"Error executing insert_to_logs_script.py: {e}")
+    else:
+        print("Invalid number of arguments. Please provide either 1 or 3 arguments.")
+        print("Usage:")
+        print("  python script.py <source_file_location>")
+        print("  python script.py <id_config> <source_file_location> <config_path>")
+    
