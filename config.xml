@@ -46,7 +46,7 @@
             <destination_table_dw>matkinh</destination_table_dw>
         </file_config>
 		<file_config>
-            <name>mắt kính việt tín2</name>
+            <name>mắt kính việt tín 2</name>
             <sources>
                 <source>https://kinhmatviettin.vn/</source>
             </sources>
