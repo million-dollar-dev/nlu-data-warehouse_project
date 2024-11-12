@@ -23,6 +23,21 @@ IF ERRORLEVEL 1 (
     pip install tabulate
 )
 
+set LIBRARIES=requests pandas bs4 beautifulsoup4 datetime
+
+for %%L in (%LIBRARIES%) do (
+    echo Đang kiểm tra thư viện %%L...
+    
+    rem Kiểm tra nếu thư viện đã cài, nếu chưa cài thì tiến hành cài đặt
+    python -c "import %%L" 2>nul
+    if %errorlevel% neq 0 (
+        echo Thư viện %%L chưa được cài đặt. Đang cài đặt...
+        pip install %%L
+    ) else (
+        echo Thư viện %%L đã được cài đặt.
+    )
+)
+
 REM Nhận đường dẫn file config.xml từ đối số đầu vào
 IF "%~1"=="" (
     echo Chưa cung cấp đường dẫn đến file config.xml. Vui lòng thử lại.
