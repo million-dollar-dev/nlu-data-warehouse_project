@@ -38,17 +38,7 @@ for %%L in (%LIBRARIES%) do (
     )
 )
 
-REM Nhận đường dẫn file config.xml từ đối số đầu vào
-IF "%~1"=="" (
-    echo Chưa cung cấp đường dẫn đến file config.xml. Vui lòng thử lại.
-    echo Sử dụng: run_program.bat "duong_dan_toi_file_config.xml"
-    exit /b
-)
-
-SET CONFIG_PATH=%~1
-echo Đường dẫn file config.xml: %CONFIG_PATH%
-
 REM Chạy script Python với đường dẫn file config.xml và hiển thị output
-python extract_file.py %CONFIG_PATH%
+
 
 pause

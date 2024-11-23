@@ -16,43 +16,4 @@
             <password>gHnOGiRGn7krJJZeZcFr1YrttM6Rphji</password>
         </database>
     </databases>
-
-    <file_configs>
-        <file_config>
-            <name>mắt kính việt tín</name>
-            <sources>
-                <source>https://kinhmatviettin.vn/</source>
-            </sources>
-            <source_file_location>E:\Documents\NLU\DataWarehouse\project\daily_data</source_file_location>
-            <destination_table_staging>matkinh_daily</destination_table_staging>
-            <destination_table_dw>matkinh</destination_table_dw>
-        </file_config>
-		<file_config>
-            <name>mắt kính việt tín</name>
-            <sources>
-                <source>https://kinhmatviettin.vn/</source>
-            </sources>
-            <source_file_location>E:\Documents\NLU\DataWarehouse\project\monthly_data</source_file_location>
-            <destination_table_staging>matkinh_mothly</destination_table_staging>
-            <destination_table_dw>matkinh</destination_table_dw>
-        </file_config>
-		<file_config>
-            <name>mắt kính việt tín</name>
-            <sources>
-                <source>https://kinhmatviettin.vn/</source>
-            </sources>
-            <source_file_location>E:\Documents\NLU\DataWarehouse\project\monthly_data</source_file_location>
-            <destination_table_staging>matkinh_mothly</destination_table_staging>
-            <destination_table_dw>matkinh</destination_table_dw>
-        </file_config>
-		<file_config>
-            <name>mắt kính việt tín 2</name>
-            <sources>
-                <source>https://kinhmatviettin.vn/</source>
-            </sources>
-            <source_file_location>E:\Documents\NLU\DataWarehouse\project\monthly_data</source_file_location>
-            <destination_table_staging>matkinh_mothly</destination_table_staging>
-            <destination_table_dw>matkinh</destination_table_dw>
-        </file_config>
-    </file_configs>
 </configuration>

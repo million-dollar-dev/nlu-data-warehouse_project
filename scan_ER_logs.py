@@ -179,7 +179,7 @@ def check_create_temp_table(conn, staging_table):
         print(f"Temporary table {staging_table}_temp already exists.")
 
 # Hàm chính
-def main(id_config, date_str=None):
+def main(id_config, config_path, date_str=None):
     # Nếu không có ngày đầu vào, sử dụng ngày hôm nay
     if not date_str:
         date_str = datetime.now().strftime('%Y-%m-%d')
@@ -226,4 +226,4 @@ if __name__ == "__main__":
     date_str = sys.argv[3] if len(sys.argv) > 3 else None
     
     # Chạy hàm main với các tham số
-    main(id_config, date_str, config_path)
+    main(id_config, config_path, date_str)
