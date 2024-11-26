@@ -15,5 +15,12 @@
             <username>root</username>
             <password>gHnOGiRGn7krJJZeZcFr1YrttM6Rphji</password>
         </database>
+		<database name="dw">
+            <hostname>dpg-ct2jaspu0jms738rmkgg-a.singapore-postgres.render.com</hostname>
+            <port>5432</port>
+            <database>dw_xyg1</database>
+            <username>root</username>
+            <password>XQqw4cZnWjM5JaAge4fMLpV8PEzIYhzH</password>
+        </database>
     </databases>
 </configuration>
