@@ -1,0 +1,17 @@
+CREATE TABLE matkinh_daily
+(
+    natural_key        VARCHAR(355) PRIMARY KEY,
+    sku                VARCHAR(100),
+    product_name       VARCHAR(255),
+    price              INTEGER,
+    brand              VARCHAR(100),
+    material           VARCHAR(100),
+    shape              VARCHAR(50),
+    dimension          VARCHAR(50),
+    origin             VARCHAR(50),
+    quantity_available INTEGER,
+    product_url        TEXT,
+    id_config          INTEGER,
+    dt_extract         DATE,
+    dt_load            DATE
+);
