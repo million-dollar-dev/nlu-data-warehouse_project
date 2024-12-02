@@ -249,6 +249,94 @@ def update_status_to_lr(conn, id, file_name):
         conn.rollback()  # Rollback nếu có lỗi
 
 
+def update_status(conn, record_id, id_config, time_value):
+    """
+    Cập nhật trường `status` của một bản ghi trong bảng `file_logs`.
+
+    :param conn: Kết nối cơ sở dữ liệu PostgreSQL đã được tạo.
+    :param record_id: Giá trị của `id` dùng để tìm bản ghi.
+    :param id_config: Giá trị của `id_config` dùng để tìm bản ghi.
+    :param time_value: Giá trị thời gian để cập nhật.
+    """
+    try:
+        # Tạo con trỏ
+        cursor = conn.cursor()
+
+        # Câu lệnh SQL để cập nhật
+        update_query = """
+        UPDATE file_logs
+        SET status = 'ES', time = %s
+        WHERE id = %s AND id_config = %s;
+        """
+
+        # Thực thi câu lệnh SQL
+        cursor.execute(update_query, (time_value, record_id, id_config))
+
+        # Xác nhận thay đổi
+        conn.commit()
+
+        # Kiểm tra số lượng bản ghi được cập nhật
+        if cursor.rowcount > 0:
+            print(f"Successfully updated {cursor.rowcount} record(s).")
+        else:
+            print("No records were updated. Please check your input conditions.")
+
+    except psycopg2.Error as e:
+        print(f"An error occurred: {e}")
+    finally:
+        # Đóng con trỏ
+        if cursor:
+            cursor.close()
+
+
+def insert_file_log_LR(conn, id_config, time, file_name, count, file_size_kb):
+    """
+    Thêm một bản ghi mới vào bảng `file_logs`.
+
+    :param conn: Kết nối cơ sở dữ liệu PostgreSQL đã được tạo.
+    :param id_config: Giá trị của cột `id_config` trong bảng `file_logs`.
+    :param time: Thời gian để thêm vào cột `time`.
+    :param file_name: Tên file để thêm vào cột `file_name`.
+    :param cout: Giá trị số để thêm vào cột `cout`.
+    :param file_size_location: Giá trị để thêm vào cột `file_size_location`.
+    """
+    try:
+        # Tạo con trỏ
+        cursor = conn.cursor()
+
+        # Lấy thời gian hiện tại cho `dt_update`
+        current_time = datetime.now()
+
+        # Câu lệnh SQL để chèn dữ liệu
+        insert_query = """
+        INSERT INTO file_logs (
+            id_config, 
+            file_name, 
+            time, 
+            status, 
+            count, 
+            file_size_kb, 
+            dt_update
+        )
+        VALUES (%s, %s, %s, 'LR', %s, %s, %s);
+        """
+
+        # Thực thi câu lệnh SQL
+        cursor.execute(insert_query, (id_config, file_name, time, count, file_size_kb, current_time))
+
+        # Xác nhận thay đổi
+        conn.commit()
+
+        print("Insert successful.")
+
+    except psycopg2.Error as e:
+        print(f"An error occurred during insertion: {e}")
+    finally:
+        # Đóng con trỏ
+        if cursor:
+            cursor.close()
+
+
 def main():
     if len(sys.argv) < 3:
         print("Vui lòng nhập ít nhất 3 tham số: id_config, path_config, và db_name.")
@@ -291,6 +379,7 @@ def main():
     conn.close()
     #Kết nối csdl staging
     conn = connect_to_database(db_staging_config)
+    print(file_info)
     #Insert dữ liệu vào staging
     insert_csv_to_table(conn, file_info['source_file_location'] + "\\" + file_info['file_name'], file_info['destination_table_staging'], id_config, file_info['time'], date)
     #Transform dữ liệu
@@ -301,7 +390,9 @@ def main():
     # Kết nối cơ sở dữ liệu controls
     conn = connect_to_database(db_controls_config)
     #Cập nhật file log sang "LR"
-    update_status_to_lr(conn, file_info['id'], file_name)
+    # update_status_to_lr(conn, file_info['id'], file_name)
+    update_status(conn, file_info['id'], file_info['id_config'], file_info['time'])
+    insert_file_log_LR(conn, file_info['id_config'], file_info['time'], file_name, file_info['count'], file_info['file_size_kb'])
     conn.close()
 if __name__ == "__main__":
     main()
