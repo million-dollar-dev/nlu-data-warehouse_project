@@ -217,9 +217,6 @@ def export_table_to_csv(conn, folder_path, date, table_name, source):
         print(f"Lỗi khi export dữ liệu từ bảng '{table_name}': {e}")
         return None
 
-import psycopg2
-from datetime import datetime
-
 def update_status_to_lr(conn, id, file_name):
     """
     Hàm cập nhật trường status thành 'LR' và dt_update thành thời điểm hiện tại
@@ -376,10 +373,12 @@ def main():
     # Logic xử lý sau khi kết nối (nếu cần)
     # Thực hiện truy vấn Join và lấy kết quả
     file_info = fetch_file_info(conn, id_config, date)
+    if not file_info:
+        print('Không có file trong trạng thái ER')
+        return
     conn.close()
     #Kết nối csdl staging
     conn = connect_to_database(db_staging_config)
-    print(file_info)
     #Insert dữ liệu vào staging
     insert_csv_to_table(conn, file_info['source_file_location'] + "\\" + file_info['file_name'], file_info['destination_table_staging'], id_config, file_info['time'], date)
     #Transform dữ liệu

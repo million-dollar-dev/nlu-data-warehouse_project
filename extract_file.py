@@ -99,7 +99,6 @@ def scrape_all_products_to_csv(source_file_location, name):
         print(f"Lấy thông tin sản phẩm từ trang: {page_url}")
         
         product_links = get_product_links(page_url)
-        
         # Lặp qua từng link sản phẩm để lấy thông tin chi tiết
         for product_url in product_links:
             print(f"Lấy thông tin sản phẩm từ: {product_url}")
