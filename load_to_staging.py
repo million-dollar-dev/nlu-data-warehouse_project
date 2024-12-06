@@ -10,6 +10,11 @@ import xml.etree.ElementTree as ET
 import psycopg2
 from psycopg2 import extras
 import csv
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+EMAIL = 'hoangtunqs134@gmail.com'
 
 def load_database_config(db_name, config_path):
     """
@@ -84,7 +89,7 @@ def fetch_file_info(conn, id_config, date):
         fc.destination_table_staging
     FROM file_logs fl
         INNER JOIN file_config fc ON fl.id_config = fc.id
-    WHERE fl.id_config = %s AND fl.time::date = %s AND fl.status = 'ER'
+    WHERE fl.id_config = %s AND fl.time::date = %s AND fl.status = 'ES'
     """
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -179,74 +184,8 @@ def transform_data(conn, table_name):
         print(f"Lỗi khi thay thế giá trị NULL: {e}")
         conn.rollback()  # Quay lại trạng thái trước đó nếu có lỗi
 
-def export_table_to_csv(conn, folder_path, date, table_name, source):
-    """
-    Xuất dữ liệu từ một bảng trong PostgreSQL ra file CSV.
 
-    :param conn: Kết nối PostgreSQL.
-    :param folder_path: Đường dẫn folder để lưu file.
-    :param date: Ngày xuất dữ liệu (định dạng yyyy-mm-dd).
-    :param table_name: Tên bảng cần export.
-    :return: Đường dẫn đầy đủ của file CSV đã xuất ra.
-    """
-    # Tạo tên file
-    date = date.strftime("%Y-%m-%d")
-    domain_name = source.split("//")[1].split("/")[0]
-    file_name = f"lr_{table_name}_{date}_{domain_name}.csv"
-    file_path = os.path.join(folder_path, file_name)
-    
-    # Câu lệnh truy vấn
-    query = f"SELECT * FROM {table_name}"
-    
-    try:
-        with conn.cursor() as cur:
-            # Thực hiện truy vấn
-            cur.execute(query)
-            rows = cur.fetchall()
-            column_names = [desc[0] for desc in cur.description]  # Lấy tên cột
-            
-            # Ghi dữ liệu ra file CSV
-            with open(file_path, mode='w', encoding='utf-8', newline='') as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(column_names)  # Ghi dòng tên cột
-                writer.writerows(rows)        # Ghi dữ liệu
-                
-            print(f"Dữ liệu đã được export ra file: {file_path}")
-            return file_name  # Trả về đường dẫn file
-    except Exception as e:
-        print(f"Lỗi khi export dữ liệu từ bảng '{table_name}': {e}")
-        return None
-
-def update_status_to_lr(conn, id, file_name):
-    """
-    Hàm cập nhật trường status thành 'LR' và dt_update thành thời điểm hiện tại
-    cho record có id là id nhập vào.
-
-    :param conn: Kết nối PostgreSQL.
-    :param id: ID của record cần cập nhật.
-    """
-    # Thời gian hiện tại
-    dt_update = datetime.now()
-
-    # Câu lệnh SQL để cập nhật record
-    query = """
-    UPDATE file_logs
-    SET file_name = %s, status = 'LR', dt_update = %s
-    WHERE id = %s
-    """
-    
-    try:
-        with conn.cursor() as cur:
-            # Thực thi câu lệnh SQL
-            cur.execute(query, (file_name, dt_update, id))
-            conn.commit()  # Lưu thay đổi vào cơ sở dữ liệu
-            print(f"Record với id {id} đã được cập nhật thành công.")
-    except Exception as e:
-        print(f"Lỗi khi cập nhật record: {e}")
-        conn.rollback()  # Rollback nếu có lỗi
-
-
-def update_status(conn, record_id, id_config, time_value):
+def update_status(conn, record_id, id_config, time_value, status):
     """
     Cập nhật trường `status` của một bản ghi trong bảng `file_logs`.
 
@@ -262,12 +201,12 @@ def update_status(conn, record_id, id_config, time_value):
         # Câu lệnh SQL để cập nhật
         update_query = """
         UPDATE file_logs
-        SET status = 'ES', time = %s
+        SET status = %s, time = %s
         WHERE id = %s AND id_config = %s;
         """
 
         # Thực thi câu lệnh SQL
-        cursor.execute(update_query, (time_value, record_id, id_config))
+        cursor.execute(update_query, (status, time_value, record_id, id_config))
 
         # Xác nhận thay đổi
         conn.commit()
@@ -285,54 +224,80 @@ def update_status(conn, record_id, id_config, time_value):
         if cursor:
             cursor.close()
 
-
-def insert_file_log_LR(conn, id_config, time, file_name, count, file_size_kb):
+def check_file_log(conn, id_config, date):
     """
-    Thêm một bản ghi mới vào bảng `file_logs`.
+    Hàm kiểm tra trong bảng `file_logs` có bản ghi nào có `id_config` là id_config nhập vào,
+    `time` là ngày nhập vào và `status` là 'Loading' hoặc 'LS'.
 
-    :param conn: Kết nối cơ sở dữ liệu PostgreSQL đã được tạo.
-    :param id_config: Giá trị của cột `id_config` trong bảng `file_logs`.
-    :param time: Thời gian để thêm vào cột `time`.
-    :param file_name: Tên file để thêm vào cột `file_name`.
-    :param cout: Giá trị số để thêm vào cột `cout`.
-    :param file_size_location: Giá trị để thêm vào cột `file_size_location`.
+    :param conn: Kết nối PostgreSQL.
+    :param id_config: Giá trị `id_config` cần kiểm tra.
+    :param date: Ngày cần kiểm tra (dạng chuỗi 'YYYY-MM-DD').
+    :return: True nếu tồn tại bản ghi thỏa mãn, False nếu không.
+    """
+    query = """
+    SELECT 1
+    FROM file_logs
+    WHERE id_config = %s
+      AND time = %s
+      AND (status = 'Loading' OR status = 'LS' OR status != 'ES')
+    LIMIT 1
     """
     try:
-        # Tạo con trỏ
-        cursor = conn.cursor()
+        with conn.cursor() as cur:
+            cur.execute(query, (id_config, date))
+            result = cur.fetchone()
+            if result:
+                print(f"Có bản ghi thỏa mãn điều kiện trong file_logs.")
+                return True
+            else:
+                print(f"Không có bản ghi thỏa mãn điều kiện trong file_logs.")
+                return False
+    except Exception as e:
+        print(f"Lỗi khi kiểm tra bản ghi trong file_logs: {e}")
+        return False
 
-        # Lấy thời gian hiện tại cho `dt_update`
-        current_time = datetime.now()
+def check_csv_file_exists(file_path):
+    """
+    Hàm kiểm tra xem tệp .csv có tồn tại tại đường dẫn nhập vào hay không.
 
-        # Câu lệnh SQL để chèn dữ liệu
-        insert_query = """
-        INSERT INTO file_logs (
-            id_config, 
-            file_name, 
-            time, 
-            status, 
-            count, 
-            file_size_kb, 
-            dt_update
-        )
-        VALUES (%s, %s, %s, 'LR', %s, %s, %s);
-        """
+    :param file_path: Đường dẫn tới tệp .csv.
+    :return: True nếu tệp tồn tại, False nếu không.
+    """
+    if os.path.isfile(file_path) and file_path.lower().endswith('.csv'):
+        return True
+    else:
+        return False
 
-        # Thực thi câu lệnh SQL
-        cursor.execute(insert_query, (id_config, file_name, time, count, file_size_kb, current_time))
+def send_email(to_email, subject, body):
+    """
+    Gửi email qua Gmail SMTP.
 
-        # Xác nhận thay đổi
-        conn.commit()
+    :param to_email: Email người nhận (str)
+    :param subject: Tiêu đề email (str)
+    :param body: Nội dung email (str)
+    :return: None
+    """
+    # Thông tin tài khoản Gmail
+    SMTP_SERVER = "smtp.gmail.com"
+    SMTP_PORT = 587
+    EMAIL = "chamdaynoidaucuaerik@gmail.com"
+    PASSWORD = "wuag gbxt lhoa lele"
 
-        print("Insert successful.")
+    try:
+        # Tạo email
+        msg = MIMEMultipart()
+        msg["From"] = EMAIL
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(EMAIL, PASSWORD)
+            server.sendmail(EMAIL, to_email, msg.as_string())
+            print(f"Email đã được gửi tới {to_email}")
 
-    except psycopg2.Error as e:
-        print(f"An error occurred during insertion: {e}")
-    finally:
-        # Đóng con trỏ
-        if cursor:
-            cursor.close()
-
+    except Exception as e:
+        print(f"Đã xảy ra lỗi khi gửi email: {e}")
 
 def main():
     if len(sys.argv) < 3:
@@ -361,37 +326,36 @@ def main():
     print(f"Date: {date}")
 
     # Load thông tin kết nối từ file config
+    db_config = load_database_config("dw", path_config)
     try:
-        db_controls_config = load_database_config("controls", path_config)
-        db_staging_config = load_database_config("staging", path_config)
+        # Kết nối cơ sở dữ liệu dw
+        conn = connect_to_database(db_config)
     except Exception as e:
-        print(f"Lỗi: {e}")
+        send_email(EMAIL, 'LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW', 'Lỗi phát hiện: {e}')
         sys.exit(1)
-
-    # Kết nối cơ sở dữ liệu controls
-    conn = connect_to_database(db_controls_config)
-    # Logic xử lý sau khi kết nối (nếu cần)
-    # Thực hiện truy vấn Join và lấy kết quả
-    file_info = fetch_file_info(conn, id_config, date)
-    if not file_info:
-        print('Không có file trong trạng thái ER')
         return
-    conn.close()
-    #Kết nối csdl staging
-    conn = connect_to_database(db_staging_config)
-    #Insert dữ liệu vào staging
-    insert_csv_to_table(conn, file_info['source_file_location'] + "\\" + file_info['file_name'], file_info['destination_table_staging'], id_config, file_info['time'], date)
-    #Transform dữ liệu
-    transform_data(conn, file_info['destination_table_staging'])
-    #export dữ liệu ra file
-    file_name = export_table_to_csv(conn, file_info['source_file_location'], date, file_info['destination_table_staging'], file_info['source'])
-    conn.close()
-    # Kết nối cơ sở dữ liệu controls
-    conn = connect_to_database(db_controls_config)
-    #Cập nhật file log sang "LR"
-    # update_status_to_lr(conn, file_info['id'], file_name)
-    update_status(conn, file_info['id'], file_info['id_config'], file_info['time'])
-    insert_file_log_LR(conn, file_info['id_config'], file_info['time'], file_name, file_info['count'], file_info['file_size_kb'])
+    
+    #Kiểm tra file log có tiến trình đang chạy hay đã chạy hay không có file nào có status ES
+    exists = check_file_log(conn, id_config, date)
+    if exists:
+        print('Có tiến trình đã/đang thực hiện hoặc không có file nào sẵn sàng đưa vào staging')
+        send_email(EMAIL, 'LỖI TRONG QUÁ TRÌNH LOAD_TO_STAGING: NGÀY {date} | ID CONFIG: {id_config}', 'Lỗi phát hiện: Đã có tiến trình đang/đã chạy hoặc không có file sẵn sàng đưa vào staging')
+    else:
+        # Lấy thông tin file log
+        file_info = fetch_file_info(conn, id_config, date)
+        print(file_info)
+        # Kiểm tra file .csv theo thông tin của file config
+        if not check_csv_file_exists(file_info['source_file_location'] + "\\" + file_info['file_name']):
+            send_email(EMAIL, 'LỖI KẾT TRONG QUÁ TRÌNH LOAD_TO_STAGING: NGÀY {date} | ID CONFIG: {id_config}', 'Lỗi phát hiện: {e}')
+        else:
+            #Cập nhật file log sang status "Loading to staging"
+            update_status(conn, file_info['id'], id_config, file_info['time'], 'Loading')
+            #Insert dữ liệu vào bảng staging tương ứng
+            insert_csv_to_table(conn, file_info['source_file_location'] + "\\" + file_info['file_name'], file_info['destination_table_staging'], id_config, file_info['time'], date)
+            #Transform dữ liệu
+            transform_data(conn, file_info['destination_table_staging'])
+            #Cập nhật file log sang "LR"
+            update_status(conn, file_info['id'], id_config, file_info['time'], 'LS')
     conn.close()
 if __name__ == "__main__":
     main()

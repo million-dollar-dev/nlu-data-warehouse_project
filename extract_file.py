@@ -11,6 +11,11 @@ import xml.etree.ElementTree as ET
 import psycopg2
 from psycopg2 import extras
 import csv
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+EMAIL = 'hoangtunqs134@gmail.com'
 
 # Hàm lấy danh sách link sản phẩm từ trang danh mục
 def get_product_links(page_url):
@@ -59,8 +64,9 @@ def get_product_details(product_url):
             origin = desc_text.split("Xuất xứ:")[1].split("•")[0].split()[0].strip()
     # Lấy số lượng sản phẩm có sẵn, chỉ giữ lại số
     quantity = soup.find('div', class_='number-items-available')
-    quantity_available = ''.join(filter(str.isdigit, quantity.text)) if quantity else "Không xác định"
-
+    quantity_available = ''.join(filter(str.isdigit, quantity.text)) if quantity else None
+    if not quantity_available:
+        quantity_available = "0"
     return {
         'sku': sku,
         'product_name': product_name,
@@ -77,7 +83,7 @@ def get_product_details(product_url):
 # Hàm chính để duyệt qua các trang danh mục và cào dữ liệu tất cả sản phẩm
 def scrape_all_products_to_csv(source_file_location, name):
     all_products = []
-    base_url = "https://kinhmatviettin.vn/product-categories/gong-kinh?page="
+    base_url = "https://kinhmatviettin.vn/product-categories/gong-kinh?pagesss="
     total_pages = 1  # Số trang cần duyệt
     # Lấy ngày hiện tại để tạo tên file
     current_date = datetime.now().strftime("%Y-%m-%d")
@@ -233,7 +239,7 @@ def get_csv_file_info(folder_path, file_name):
         print(f"Lỗi khi xử lý file '{file_path}': {e}")
         return None
     
-def insert_file_log(conn, id_config, file_name, time, count, file_size_kb, dt_update):
+def insert_file_log(conn, id_config, status, file_name, time, count, file_size_kb, dt_update):
     """
     Hàm chèn một bản ghi vào bảng `file_logs`.
     
@@ -249,17 +255,111 @@ def insert_file_log(conn, id_config, file_name, time, count, file_size_kb, dt_up
     """
     query = """
     INSERT INTO file_logs (id_config, file_name, time, status, count, file_size_kb, dt_update)
-    VALUES (%s, %s, %s, 'ER', %s, %s, %s)
+    VALUES (%s, %s, %s, %s, %s, %s, %s)
+    RETURNING id
     """
     try:
         with conn.cursor() as cur:
-            cur.execute(query, (id_config, file_name, time, count, file_size_kb, dt_update))
+            cur.execute(query, (id_config, file_name, time, status, count, file_size_kb, dt_update))
+            inserted_id = cur.fetchone()[0]
             conn.commit()
-            print("Chèn bản ghi vào file_logs thành công.")
+            return inserted_id
     except Exception as e:
         print(f"Lỗi khi chèn bản ghi vào file_logs: {e}")
         conn.rollback()
+        return None
 
+def update_file_log(conn, id, status, file_name, count, file_size_kb, dt_update):
+    """
+    Hàm cập nhật một bản ghi trong bảng `file_logs` dựa trên ID.
+
+    :param conn: Kết nối PostgreSQL.
+    :param id: ID của bản ghi cần cập nhật.
+    :param status: Trạng thái mới.
+    :param file_name: Tên file mới.
+    :param count: Số dòng mới.
+    :param file_size_kb: Kích thước file mới (KB).
+    :param dt_update: Thời gian cập nhật mới.
+    :return: True nếu cập nhật thành công, False nếu có lỗi xảy ra.
+    """
+    query = """
+    UPDATE file_logs
+    SET status = %s, file_name = %s, count = %s, file_size_kb = %s, dt_update = %s
+    WHERE id = %s
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(query, (status, file_name, count, file_size_kb, dt_update, id))
+            conn.commit()
+            print(f"Cập nhật bản ghi ID {id} thành công.")
+            return True
+    except Exception as e:
+        print(f"Lỗi khi cập nhật bản ghi ID {id}: {e}")
+        conn.rollback()
+        return False
+    
+def check_file_log(conn, id_config, date):
+    """
+    Hàm kiểm tra trong bảng `file_logs` có bản ghi nào có `id_config` là id_config nhập vào,
+    `time` là ngày nhập vào và `status` là 'Scapping' hoặc 'ES'.
+
+    :param conn: Kết nối PostgreSQL.
+    :param id_config: Giá trị `id_config` cần kiểm tra.
+    :param date: Ngày cần kiểm tra (dạng chuỗi 'YYYY-MM-DD').
+    :return: True nếu tồn tại bản ghi thỏa mãn, False nếu không.
+    """
+    query = """
+    SELECT 1
+    FROM file_logs
+    WHERE id_config = %s
+      AND time = %s
+      AND status IN ('Scrapping', 'ES')
+    LIMIT 1
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(query, (id_config, date))
+            result = cur.fetchone()
+            if result:
+                print(f"Có bản ghi thỏa mãn điều kiện trong file_logs.")
+                return True
+            else:
+                print(f"Không có bản ghi thỏa mãn điều kiện trong file_logs.")
+                return False
+    except Exception as e:
+        print(f"Lỗi khi kiểm tra bản ghi trong file_logs: {e}")
+        return False
+
+def send_email(to_email, subject, body):
+    """
+    Gửi email qua Gmail SMTP.
+
+    :param to_email: Email người nhận (str)
+    :param subject: Tiêu đề email (str)
+    :param body: Nội dung email (str)
+    :return: None
+    """
+    # Thông tin tài khoản Gmail
+    SMTP_SERVER = "smtp.gmail.com"
+    SMTP_PORT = 587
+    EMAIL = "chamdaynoidaucuaerik@gmail.com"
+    PASSWORD = "wuag gbxt lhoa lele"
+
+    try:
+        # Tạo email
+        msg = MIMEMultipart()
+        msg["From"] = EMAIL
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(EMAIL, PASSWORD)
+            server.sendmail(EMAIL, to_email, msg.as_string())
+            print(f"Email đã được gửi tới {to_email}")
+
+    except Exception as e:
+        print(f"Đã xảy ra lỗi khi gửi email: {e}")
 
 def main():
     # Kiểm tra số lượng tham số đầu vào
@@ -271,31 +371,45 @@ def main():
     # Nhận tham số đầu vào
     id_config = sys.argv[1]
     path_config = sys.argv[2]
-    date = datetime.today()
+    date = datetime.today().strftime('%Y-%m-%d')
     
     # In thông tin
     print(f"ID Config: {id_config}")
     print(f"Path Config: {path_config}")
-    print(f"Date: {date.strftime('%Y-%m-%d')}")
+    print(f"Date: {date}")
 
     # Load thông tin kết nối từ file config
+    db_config = load_database_config("dw", path_config)
     try:
-        db_controls_config = load_database_config("controls", path_config)
+        # Kết nối cơ sở dữ liệu controls
+        conn = connect_to_database(db_config)
     except Exception as e:
-        print(f"Lỗi: {e}")
+        send_email(EMAIL, 'LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW', 'Lỗi phát hiện: {e}')
         sys.exit(1)
-
-    # Kết nối cơ sở dữ liệu controls
-    conn = connect_to_database(db_controls_config)
-    # Logic xử lý sau khi kết nối (nếu cần)
-    # Thực hiện truy vấn Join và lấy kết quả
-    file_config = fetch_file_config_by_id(conn, id_config)
-    #Tiến hành cào dữ liệu
-    file_name = scrape_all_products_to_csv(file_config['source_file_location'], file_config['destination_table_staging'])
-    #Lấy thông tin file .csv vừa cào
-    info_file_csv = get_csv_file_info(file_config['source_file_location'], file_name)
-    #Insert vào file log
-    insert_file_log(conn, id_config, file_name, date, info_file_csv['line_count'], info_file_csv['file_size_kb'], info_file_csv['creation_time'])
+        return
+        
+    # Kiểm tra file log có tiến trình đang chạy hay đã chạy thành công hay không?
+    exists = check_file_log(conn, id_config, date)
+    if exists:
+        print('Đã có tiến trình đang/đã chạy')
+        send_email(EMAIL, 'LỖI TRONG QUÁ TRÌNH EXTRACT_FILE: NGÀY {date} | ID CONFIG: {id_config}', 'Lỗi phát hiện: Đã có tiến trình đang/đã chạy')
+    else:
+        # Lấy thông tin file config
+        file_config = fetch_file_config_by_id(conn, id_config)
+        #Insert vào file log với trang thái đang cào dữ liệu
+        inserted_id = insert_file_log(conn= conn, id_config=id_config,status='Scrapping', file_name=None, time=date, count=None, file_size_kb=None, dt_update=None)
+        #Tiến hành cào dữ liệu
+        try:
+            file_name = scrape_all_products_to_csv(file_config['source_file_location'], file_config['destination_table_staging'])
+            #Lấy thông tin file .csv vừa cào
+            info_file_csv = get_csv_file_info(file_config['source_file_location'], file_name)
+            #Cập nhật file log sang trạng thái ES
+            update_file_log(conn, inserted_id, 'ES', file_name, info_file_csv['line_count'], info_file_csv['file_size_kb'], info_file_csv['creation_time'])
+        except Exception as e:
+            print('scrap fail {e}')
+            # Cập nhật file log sang trạng trái EF
+            update_file_log(conn=conn, id=inserted_id, status='EF',file_name=None, count=None, file_size_kb=None, dt_update=None)
+            send_email(EMAIL, 'LỖI KẾT TRONG QUÁ TRÌNH CÀO DỮ LIỆU: NGÀY {date} | ID CONFIG: {id_config}', 'Lỗi phát hiện: {e}')
     #Đóng kết nối
     conn.close()
 if __name__ == "__main__":
