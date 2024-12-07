@@ -14,6 +14,7 @@ import csv
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from b2sdk.v2 import InMemoryAccountInfo, B2Api
 
 EMAIL = 'hoangtunqs134@gmail.com'
 
@@ -83,7 +84,7 @@ def get_product_details(product_url):
 # Hàm chính để duyệt qua các trang danh mục và cào dữ liệu tất cả sản phẩm
 def scrape_all_products_to_csv(source_file_location, name):
     all_products = []
-    base_url = "https://kinhmatviettin.vn/product-categories/gong-kinh?pagesss="
+    base_url = "https://kinhmatviettin.vn/product-categories/gong-kinh?pages="
     total_pages = 1  # Số trang cần duyệt
     # Lấy ngày hiện tại để tạo tên file
     current_date = datetime.now().strftime("%Y-%m-%d")
@@ -106,7 +107,7 @@ def scrape_all_products_to_csv(source_file_location, name):
         
         product_links = get_product_links(page_url)
         # Lặp qua từng link sản phẩm để lấy thông tin chi tiết
-        for product_url in product_links:
+        for product_url in product_links[:10]:
             print(f"Lấy thông tin sản phẩm từ: {product_url}")
             product_details = get_product_details(product_url)
             all_products.append(product_details)
@@ -361,6 +362,51 @@ def send_email(to_email, subject, body):
     except Exception as e:
         print(f"Đã xảy ra lỗi khi gửi email: {e}")
 
+def upload_csv_to_b2(config_file, bucket_name, folder_name, csv_file_path):
+    """
+    Upload a CSV file to a folder in a bucket on Backblaze B2.
+
+    Args:
+        config_file (str): Path to the XML configuration file.
+        bucket_name (str): Name of the B2 bucket.
+        folder_name (str): Folder path within the bucket where the file will be uploaded.
+        csv_file_path (str): Path to the CSV file to upload.
+
+    Returns:
+        str: The URL of the uploaded file.
+    """
+    # Parse the config file to extract Backblaze credentials
+    tree = ET.parse(config_file)
+    root = tree.getroot()
+
+    # Extract credentials from the XML
+    key_id = root.find("./backblaze/key_id").text
+    application_key = root.find("./backblaze/application_key").text
+
+    # Initialize B2 API
+    info = InMemoryAccountInfo()
+    b2_api = B2Api(info)
+
+    # Authorize with B2
+    b2_api.authorize_account("production", key_id, application_key)
+
+    # Get the bucket
+    bucket = b2_api.get_bucket_by_name(bucket_name)
+
+    # Ensure folder name ends with a slash
+    if not folder_name.endswith("/"):
+        folder_name += "/"
+
+    # Construct the full file name (folder + base file name)
+    file_name = folder_name + os.path.basename(csv_file_path)
+
+    # Upload the file
+    bucket.upload_local_file(
+        local_file=csv_file_path,
+        file_name=file_name,
+        file_infos={'id_config': '1'},
+    )
+
 def main():
     # Kiểm tra số lượng tham số đầu vào
     if len(sys.argv) < 2:
@@ -378,39 +424,42 @@ def main():
     print(f"Path Config: {path_config}")
     print(f"Date: {date}")
 
-    # Load thông tin kết nối từ file config
+    # 1.1. Load thông tin kết nối từ file config
     db_config = load_database_config("dw", path_config)
     try:
-        # Kết nối cơ sở dữ liệu controls
+        # 1.2. Kết nối cơ sở dữ liệu controls
         conn = connect_to_database(db_config)
     except Exception as e:
+        # 1.2.1. Gửi mail thông lỗi kết nối csdl dw
         send_email(EMAIL, 'LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW', 'Lỗi phát hiện: {e}')
         sys.exit(1)
         return
         
-    # Kiểm tra file log có tiến trình đang chạy hay đã chạy thành công hay không?
+    # 1.3. Kiểm tra file logs có tiến trình đã chạy hoặc đang chạy hay không
     exists = check_file_log(conn, id_config, date)
     if exists:
-        print('Đã có tiến trình đang/đã chạy')
+        # 1.3.1. Gửi mail thông báo có tiến trình đã/đang chạy
         send_email(EMAIL, 'LỖI TRONG QUÁ TRÌNH EXTRACT_FILE: NGÀY {date} | ID CONFIG: {id_config}', 'Lỗi phát hiện: Đã có tiến trình đang/đã chạy')
     else:
-        # Lấy thông tin file config
+        # 1.4.Lấy thông tin file config
         file_config = fetch_file_config_by_id(conn, id_config)
-        #Insert vào file log với trang thái đang cào dữ liệu
+        # 1.5.Insert 1 dòng vào file log có status scrapping
         inserted_id = insert_file_log(conn= conn, id_config=id_config,status='Scrapping', file_name=None, time=date, count=None, file_size_kb=None, dt_update=None)
-        #Tiến hành cào dữ liệu
         try:
+            # 1.6.Tiến hành cào dữ liệu
             file_name = scrape_all_products_to_csv(file_config['source_file_location'], file_config['destination_table_staging'])
-            #Lấy thông tin file .csv vừa cào
+            # 1.7.Lấy thông tin file vào cào về
             info_file_csv = get_csv_file_info(file_config['source_file_location'], file_name)
-            #Cập nhật file log sang trạng thái ES
+            # 1.8.Upload file vừa cào về lên Backblaze B2
+            upload_csv_to_b2(path_config, file_config['bucket_name'], file_config['folder_b2_name'], file_config['source_file_location'] + "\\" + file_name)
+            # 1.9.Cập nhật file log sang trạng thái ES
             update_file_log(conn, inserted_id, 'ES', file_name, info_file_csv['line_count'], info_file_csv['file_size_kb'], info_file_csv['creation_time'])
         except Exception as e:
-            print('scrap fail {e}')
-            # Cập nhật file log sang trạng trái EF
+            # 1.6.1.Cập nhật file log sang trạng thái EF
             update_file_log(conn=conn, id=inserted_id, status='EF',file_name=None, count=None, file_size_kb=None, dt_update=None)
+            #1.6.2.Gửi mail thông báo cào thất bại
             send_email(EMAIL, 'LỖI KẾT TRONG QUÁ TRÌNH CÀO DỮ LIỆU: NGÀY {date} | ID CONFIG: {id_config}', 'Lỗi phát hiện: {e}')
-    #Đóng kết nối
+    # 1.10. Đóng kết nối csdl
     conn.close()
 if __name__ == "__main__":
     main()

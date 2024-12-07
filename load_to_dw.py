@@ -508,39 +508,42 @@ def main():
     print(f"Path Config: {path_config}")
     print(f"Date: {date}")
     
-    # 3.1. Load thông tin kết nối từ file config
+    # 3.1. Load file config.xml
     db_config = load_database_config("dw", path_config)
     try:
-        # 3.2. Kết nối cơ sở dữ liệu controls
+        # 3.2. Kết nối cơ sở dữ liệu dw
         conn = connect_to_database(db_config)
     except Exception as e:
+        # 3.2.1.Gửi mail thông báo kết nối csdl dw thất bại
         send_email(EMAIL, 'LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW', 'Lỗi phát hiện: {e}')
         sys.exit(1)
         return
     
-    #Kiểm tra file log có tiến trình đang chạy hay đã chạy hay không có file nào có status LS
+    # 3.3.Kiểm tra có tiến trình đang/đã chạy hoặc không có dữ liệu sẵn sàng đưa vào dw hay không
     exists = check_file_log(conn, id_config, date)
     if exists:
-        print('đã chạy rồi')
+        # 3.3.1.Gửi mail thông báo có tiến trình đang/đã chạy hoặc không có dữ liệu sẵn sàng đưa vào dw(status 'LS')
+        send_email(EMAIL, 'LỖI TRONG QUÁ TRÌNH LOAD_TO_DW: NGÀY {date} | ID CONFIG: {id_config}', 'Lỗi phát hiện: Đã có tiến trình đang/đã chạy hoặc không có file sẵn sàng đưa vào data warehouse')
     else:
-        # 3.3. Truy vấn lấy thông file với điều kiện là id_config, ngày nhập vào và status là LR
+        # 3.4.Lấy thông tin file log
         file_info = fetch_file_info(conn, id_config, date)
-        # Cập nhật file log sang status Loading to dw
+        # 3.5.Cập nhật file log sang trạng thái 'Loading to dw'
         update_status(conn, file_info['id'], 'Loading to dw', id_config, date)
-        # 3.8. Insert file .csv vừa lấy vào bảng temp_dw
-        #insert_into_temp_dw(conn, id_config, date, file_info['destination_table_staging'])
-        # 3.9. Insert dữ liệu mới (chưa có bên dw) từ bảng temp_dw vào dw
+        # 3.6.Insert dữ liệu ngày tương ứng từ bảng staging sang temp_dw
+        insert_into_temp_dw(conn, id_config, date, file_info['destination_table_staging'])
+        # 3.7.Insert dữ liệu mới (chưa có bên dw) từ bảng temp_dw vào dw với dt_last_update là '9999-12-31'
         insert_news_into_dw(conn, date)
-        # 3.10. Cập nhật dt_last_update các record có giá trị thay đổi
+        # 3.8.Cập nhật dt_last_update các record có giá trị thay đổi
         update_news_dt_last_update(conn, date)
-        # 3.11. Insert các dữ liệu thay đổi từ bảng temp_dw vào dw với dt_last_udpate là '9999-12-31'
+        # 3.9.Insert các dữ liệu thay đổi từ bảng temp_dw vào dw với dt_last_udpate là '9999-12-31'
         insert_changed_into_dw(conn, date)
-        # 3.12. Update cột dt_dim theo ngày của date_dim
+        # 3.10.Update cột dt_dim theo ngày của date_dim
         update_dt_dim(conn)
-        # 3.13. Truncate bảng temp_dw
-        #truncate_table(conn, 'temp_dw')
-        # Cập nhật trạng thái file log sang LWS
+        # 3.11.Truncate bảng temp_dw
+        truncate_table(conn, 'temp_dw')
+        #3.12.Cập nhật file log sang trạng thái 'LWS'
         update_status(conn, file_info['id'], 'LWS', id_config, date)
+    # 3.13.Đóng kết nối
     conn.close()
 
 

@@ -9,4 +9,9 @@
             <password>XQqw4cZnWjM5JaAge4fMLpV8PEzIYhzH</password>
         </database>
     </databases>
+	<backblaze>
+        <key_id>539a40c28e85</key_id>
+        <key_name>Master Application Key</key_name>
+        <application_key>00526180925d1c4786025f54da57b50c77496f009c</application_key>
+    </backblaze>
 </configuration>

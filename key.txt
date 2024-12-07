@@ -1,0 +1,15 @@
+-main:
+keyID:
+539a40c28e85
+keyName:
+Master Application Key
+applicationKey:
+00526180925d1c4786025f54da57b50c77496f009c
+
+-phụ: 
+keyID:
+005539a40c28e850000000002
+keyName:
+dw-extract-ls
+applicationKey:
+K005Fznk1GrDy4TcbxRLrI3W5ezgizI

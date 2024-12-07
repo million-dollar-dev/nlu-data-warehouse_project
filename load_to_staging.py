@@ -13,6 +13,8 @@ import csv
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from b2sdk.v2 import InMemoryAccountInfo, B2Api
+from io import StringIO
 
 EMAIL = 'hoangtunqs134@gmail.com'
 
@@ -86,7 +88,10 @@ def fetch_file_info(conn, id_config, date):
         fl.file_size_kb,
         fl.dt_update,
         fc.source_file_location,
-        fc.destination_table_staging
+        fc.destination_table_staging,
+        fc.bucket_name,
+        fc.folder_b2_name,
+        fc.bucket_id
     FROM file_logs fl
         INNER JOIN file_config fc ON fl.id_config = fc.id
     WHERE fl.id_config = %s AND fl.time::date = %s AND fl.status = 'ES'
@@ -107,47 +112,64 @@ def fetch_file_info(conn, id_config, date):
         return {}
 
 
-def insert_csv_to_table(conn, file_path, table_name, id_config, dt_extract, dt_load):
+def insert_csv_to_table(conn, auth_token, bucket_name, file_name, table_name, id_config, dt_extract, dt_load):
     """
-    Hàm chèn dữ liệu từ file CSV vào bảng PostgreSQL.
+    Đọc file CSV từ URL và chèn dữ liệu vào bảng PostgreSQL.
 
-    :param conn: Kết nối PostgreSQL.
-    :param file_path: Đường dẫn đầy đủ đến file CSV.
-    :param table_name: Tên bảng để chèn dữ liệu.
-    :param id_config: Giá trị chèn vào cột id_config.
-    :param dt_extract: Giá trị chèn vào cột dt_extract.
-    :param dt_load: Giá trị chèn vào cột dt_load.
+    Args:
+        conn: Kết nối đến PostgreSQL (psycopg2 connection).
+        url: Đường dẫn URL của file CSV.
+        table_name: Tên bảng trong cơ sở dữ liệu.
+        id_config: ID cấu hình cần thêm vào mỗi dòng.
+        dt_extract: Thời điểm extract dữ liệu.
+        dt_load: Thời điểm load dữ liệu.
+
+    Returns:
+        None
     """
     try:
-        print(f'Đang import dữ liệu từ file...')
-        with conn.cursor() as cur:
-            # Đọc dữ liệu từ file CSV
-            with open(file_path, mode='r', encoding='utf-8') as csvfile:
-                reader = csv.DictReader(csvfile)
-                
-                # Lấy danh sách các cột từ file CSV
-                csv_columns = reader.fieldnames
-                
-                # Chuẩn bị câu lệnh INSERT
-                columns = ", ".join(csv_columns + ["natural_key", "id_config", "dt_extract", "dt_load"])
-                placeholders = ", ".join(["%s"] * (len(csv_columns) + 4))  # 3 cột bổ sung
-                query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
-                
-                # Chèn từng dòng từ file CSV vào bảng
-                for row in reader:
-                    # Tạo giá trị cho cột `natural_key` (nối `product_name` và `sku`)
-                    natural_key = f"{row['product_name']}-{row['sku']}"
-                    
-                    # Lấy giá trị từ file CSV và thêm các cột bổ sung
-                    values = [row[col] for col in csv_columns] + [natural_key, id_config, dt_extract, dt_load]
-                    cur.execute(query, values)
-            
-            # Commit thay đổi
-            conn.commit()
-            print(f"Dữ liệu từ file '{file_path}' đã được chèn vào bảng '{table_name}' thành công.")
+        url = f"https://f005.backblazeb2.com/file/{bucket_name}/{file_name}?Authorization={auth_token}"
+        print(url)
+        # Tải file CSV từ URL
+        response = requests.get(url)
+        response.raise_for_status()  # Kiểm tra lỗi HTTP
+        
+        # Chuyển nội dung CSV thành một đối tượng StringIO
+        csv_content = response.content.decode('utf-8')  # Giả định encoding là UTF-8
+        csv_file = StringIO(csv_content)
+        print(csv_content)
+
+        # Đọc file CSV bằng csv.reader
+        reader = csv.reader(csv_file)
+        headers = next(reader)  # Đọc tiêu đề cột từ dòng đầu tiên
+
+        # Thêm các cột bổ sung
+        extended_headers = headers + ["id_config", "dt_extract", "dt_load"]
+
+        # Tạo chuỗi truy vấn SQL
+        placeholders = ", ".join(["%s"] * len(extended_headers))
+        query = f"""
+            INSERT INTO {table_name} ({", ".join(extended_headers)})
+            VALUES ({placeholders})
+        """
+
+        # Chèn dữ liệu vào bảng
+        cursor = conn.cursor()
+        for row in reader:
+            extended_row = row + [id_config, dt_extract, dt_load]
+            cursor.execute(query, extended_row)
+
+        # Lưu thay đổi
+        conn.commit()
+        print(f"Dữ liệu đã được chèn thành công vào bảng {table_name}.")
+        
+    except requests.exceptions.RequestException as e:
+        print(f"Lỗi khi tải file CSV từ URL: {e}")
+    except psycopg2.DatabaseError as e:
+        print(f"Lỗi cơ sở dữ liệu: {e}")
+        conn.rollback()  # Hoàn tác nếu có lỗi xảy ra
     except Exception as e:
-        print(f"Lỗi khi chèn dữ liệu từ file CSV vào bảng: {e}")
-        conn.rollback()
+        print(f"Lỗi khác: {e}")
 
 def transform_data(conn, table_name):
     """
@@ -256,17 +278,82 @@ def check_file_log(conn, id_config, date):
         print(f"Lỗi khi kiểm tra bản ghi trong file_logs: {e}")
         return False
 
-def check_csv_file_exists(file_path):
+def check_csv_existed_in_b2(config_file, bucket_name, folder_name, csv_file_name):
     """
-    Hàm kiểm tra xem tệp .csv có tồn tại tại đường dẫn nhập vào hay không.
+    Check if a CSV file exists in a specific folder within a Backblaze B2 bucket.
 
-    :param file_path: Đường dẫn tới tệp .csv.
-    :return: True nếu tệp tồn tại, False nếu không.
+    Args:
+        config_file (str): Path to the XML configuration file.
+        bucket_name (str): Name of the B2 bucket.
+        folder_name (str): Folder path within the bucket to check.
+        csv_file_name (str): Name of the CSV file to check.
+
+    Returns:
+        bool: True if the file exists, False otherwise.
     """
-    if os.path.isfile(file_path) and file_path.lower().endswith('.csv'):
+    # Parse the config file to extract Backblaze credentials
+    tree = ET.parse(config_file)
+    root = tree.getroot()
+
+    # Extract credentials from the XML
+    key_id = root.find("./backblaze/key_id").text
+    application_key = root.find("./backblaze/application_key").text
+
+    # Initialize B2 API
+    info = InMemoryAccountInfo()
+    b2_api = B2Api(info)
+
+    # Authorize with B2
+    b2_api.authorize_account("production", key_id, application_key)
+
+    # Get the bucket
+    bucket = b2_api.get_bucket_by_name(bucket_name)
+
+    # Ensure folder name ends with a slash
+    if not folder_name.endswith("/"):
+        folder_name += "/"
+
+    # Construct the full file path
+    file_path = folder_name + csv_file_name
+
+    # Check if the file exists in the bucket
+    try:
+        bucket.get_file_info_by_name(file_path)
         return True
-    else:
+    except Exception:
         return False
+    
+def get_authorization_token(account_id, application_key, bucket_id, file_name_prefix, valid_duration_in_seconds=3600):
+    try:
+        # Bước 1: Authorize tài khoản
+        auth_response = requests.get(
+            "https://api.backblazeb2.com/b2api/v2/b2_authorize_account",
+            auth=(account_id, application_key)
+        )
+        auth_response.raise_for_status()
+        auth_data = auth_response.json()
+
+        # Lấy API URL và token
+        api_url = auth_data['apiUrl']
+        auth_token = auth_data['authorizationToken']
+
+        # Bước 2: Lấy Download Authorization Token
+        download_auth_response = requests.post(
+            f"{api_url}/b2api/v2/b2_get_download_authorization",
+            headers={"Authorization": auth_token},
+            json={
+                "bucketId": bucket_id,
+                "fileNamePrefix": file_name_prefix,
+                "validDurationInSeconds": valid_duration_in_seconds
+            }
+        )
+        download_auth_response.raise_for_status()
+        download_auth_data = download_auth_response.json()
+
+        return download_auth_data['authorizationToken']
+    except requests.exceptions.RequestException as e:
+        print(f"Lỗi khi lấy authorization token: {e}")
+        return None
 
 def send_email(to_email, subject, body):
     """
@@ -299,6 +386,32 @@ def send_email(to_email, subject, body):
     except Exception as e:
         print(f"Đã xảy ra lỗi khi gửi email: {e}")
 
+def insert_to_table_from_b2(conn, config_file, bucket_id, bucket_name, folder_name, file_name, table_name, id_config, dt_extract, dt_load):
+    """
+    Download a CSV file from a specific folder in a Backblaze B2 bucket to a local directory.
+
+    Args:
+        config_file (str): Path to the XML configuration file.
+        bucket_name (str): Name of the B2 bucket.
+        folder_name (str): Folder path within the bucket where the file is located.
+        csv_file_name (str): Name of the CSV file to download.
+        download_directory (str): Local directory to save the downloaded file.
+
+    Returns:
+        str: Path to the downloaded file if successful.
+    """
+    # Parse the config file to extract Backblaze credentials
+    tree = ET.parse(config_file)
+    root = tree.getroot()
+
+    key_id = root.find("./backblaze/key_id").text
+    application_key = root.find("./backblaze/application_key").text
+
+    token = get_authorization_token(key_id, application_key, bucket_id, folder_name + "/" + file_name)
+    insert_csv_to_table(conn, token, bucket_name, file_name, table_name, id_config, dt_extract, dt_load)
+
+
+
 def main():
     if len(sys.argv) < 3:
         print("Vui lòng nhập ít nhất 3 tham số: id_config, path_config, và db_name.")
@@ -325,37 +438,39 @@ def main():
     print(f"Path Config: {path_config}")
     print(f"Date: {date}")
 
-    # Load thông tin kết nối từ file config
+    # 2.1. Load file config.xml 
     db_config = load_database_config("dw", path_config)
     try:
-        # Kết nối cơ sở dữ liệu dw
+        # 2.2.Kết nối cơ sở dữ liệu dw
         conn = connect_to_database(db_config)
     except Exception as e:
+        # 2.2.1.Gửi mail thông báo kết nối csdl dw thất bại
         send_email(EMAIL, 'LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW', 'Lỗi phát hiện: {e}')
         sys.exit(1)
         return
     
-    #Kiểm tra file log có tiến trình đang chạy hay đã chạy hay không có file nào có status ES
+    # 2.3.Kiểm tra file log có tiến trình đang hoặc đã chạy hoặc không có file nào có trạng thái ES chưa
     exists = check_file_log(conn, id_config, date)
     if exists:
-        print('Có tiến trình đã/đang thực hiện hoặc không có file nào sẵn sàng đưa vào staging')
+        # 2.3.1.Gửi mail thông báo có tiến trình đã/đang chạy hoặc không có file nào có status ES(sẵn sàng load)
         send_email(EMAIL, 'LỖI TRONG QUÁ TRÌNH LOAD_TO_STAGING: NGÀY {date} | ID CONFIG: {id_config}', 'Lỗi phát hiện: Đã có tiến trình đang/đã chạy hoặc không có file sẵn sàng đưa vào staging')
     else:
-        # Lấy thông tin file log
+        # 2.4.Lấy thông tin file config
         file_info = fetch_file_info(conn, id_config, date)
-        print(file_info)
-        # Kiểm tra file .csv theo thông tin của file config
-        if not check_csv_file_exists(file_info['source_file_location'] + "\\" + file_info['file_name']):
-            send_email(EMAIL, 'LỖI KẾT TRONG QUÁ TRÌNH LOAD_TO_STAGING: NGÀY {date} | ID CONFIG: {id_config}', 'Lỗi phát hiện: {e}')
+        # 2.5.Kiểm tra có tồn tại file .csv trên B2 theo thông tin của file config hay không
+        if not check_csv_existed_in_b2(path_config, file_info['bucket_name'], file_info['folder_b2_name'], file_info['file_name']):
+            # 2.5.1.Gửi mail thông báo không tồn tại file theo file log
+            send_email(EMAIL, f"LỖI KẾT TRONG QUÁ TRÌNH LOAD_TO_STAGING: NGÀY {date} | ID CONFIG: {id_config}", f"Lỗi phát hiện: Không tìm thấy file {file_info['file_name']} trên Bucket {file_info['bucket_name']}")
         else:
-            #Cập nhật file log sang status "Loading to staging"
+            # 2.6.Update file log sang status 'Loading'
             update_status(conn, file_info['id'], id_config, file_info['time'], 'Loading')
-            #Insert dữ liệu vào bảng staging tương ứng
-            insert_csv_to_table(conn, file_info['source_file_location'] + "\\" + file_info['file_name'], file_info['destination_table_staging'], id_config, file_info['time'], date)
-            #Transform dữ liệu
+            # 2.7. Insert từ file .csv  trên B2 vào bảng staging tương ứng theo file log
+            insert_to_table_from_b2(conn, path_config, file_info['bucket_id'], file_info['bucket_name'], file_info['folder_b2_name'], file_info['file_name'], file_info['destination_table_staging'], id_config, file_info['time'], date)
+            # 2.8. Tiến hành transform các cột còn thiếu thành N/A
             transform_data(conn, file_info['destination_table_staging'])
-            #Cập nhật file log sang "LR"
+            # 2.9. Update file log sang status là LS 
             update_status(conn, file_info['id'], id_config, file_info['time'], 'LS')
+    # 2.10. Đóng kết nối csdl
     conn.close()
 if __name__ == "__main__":
     main()

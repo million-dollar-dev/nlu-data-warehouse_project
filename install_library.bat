@@ -10,7 +10,7 @@ if %errorlevel% neq 0 (
 )
 
 :: Danh sách các thư viện cần kiểm tra
-set LIBRARIES=numpy pandas requests beautifulsoup4 lxml psycopg2 smtplib email.mime.text email.mime.multipart
+set LIBRARIES=numpy pandas requests beautifulsoup4 lxml psycopg2 smtplib email.mime.text email.mime.multipart b2sdk
 
 :: Kiểm tra và cài đặt từng thư viện
 for %%L in (%LIBRARIES%) do (
