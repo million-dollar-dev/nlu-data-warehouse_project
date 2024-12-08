@@ -16,50 +16,52 @@ from email.mime.multipart import MIMEMultipart
 from b2sdk.v2 import InMemoryAccountInfo, B2Api
 from io import StringIO
 
-EMAIL = 'hoangtunqs134@gmail.com'
+EMAIL = "hoangtunqs134@gmail.com"
+
 
 def load_database_config(db_name, config_path):
     """
     Hàm đọc file config.xml và lấy thông tin kết nối cho database có tên cụ thể.
-    
+
     :param db_name: Tên cơ sở dữ liệu cần kết nối.
     :param config_path: Đường dẫn file config.xml.
     :return: Dictionary chứa thông tin kết nối.
     """
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"File config tại '{config_path}' không tồn tại.")
-    
+
     # Parse file XML
     tree = ET.parse(config_path)
     root = tree.getroot()
-    
+
     # Tìm thông tin database theo tên
     for db in root.findall(".//database"):
-        if db.get('name') == db_name:
+        if db.get("name") == db_name:
             return {
-                'hostname': db.find('hostname').text,
-                'port': db.find('port').text,
-                'database': db.find('database').text,
-                'username': db.find('username').text,
-                'password': db.find('password').text
+                "hostname": db.find("hostname").text,
+                "port": db.find("port").text,
+                "database": db.find("database").text,
+                "username": db.find("username").text,
+                "password": db.find("password").text,
             }
-    
+
     raise ValueError(f"Không tìm thấy database với tên '{db_name}' trong file config.")
+
 
 def connect_to_database(db_config):
     """
     Hàm kết nối tới cơ sở dữ liệu PostgreSQL dựa trên thông tin cấu hình.
-    
+
     :param db_config: Dictionary chứa thông tin kết nối.
     :return: Kết nối PostgreSQL (psycopg2 connection object).
     """
     try:
         conn = psycopg2.connect(
-            host=db_config['hostname'],
-            port=db_config['port'],
-            database=db_config['database'],
-            user=db_config['username'],
-            password=db_config['password']
+            host=db_config["hostname"],
+            port=db_config["port"],
+            database=db_config["database"],
+            user=db_config["username"],
+            password=db_config["password"],
         )
         print(f"Kết nối cơ sở dữ liệu {db_config['database']} thành công.")
         return conn
@@ -67,10 +69,11 @@ def connect_to_database(db_config):
         print(f"Lỗi khi kết nối cơ sở dữ liệu: {e}")
         sys.exit(1)
 
+
 def fetch_file_info(conn, id_config, date):
     """
     Hàm join hai bảng file_config và file_logs để truy vấn các bản ghi sẵn sàng load vào staging (status = 'ER').
-    
+
     :param conn: Kết nối PostgreSQL.
     :param id_config: ID Config cần lọc.
     :param date: Ngày cần lọc.
@@ -112,7 +115,9 @@ def fetch_file_info(conn, id_config, date):
         return {}
 
 
-def insert_csv_to_table(conn, auth_token, bucket_name, file_name, table_name, id_config, dt_extract, dt_load):
+def insert_csv_to_table(
+    conn, url, bucket_name, file_name, table_name, id_config, dt_extract, dt_load
+):
     """
     Đọc file CSV từ URL và chèn dữ liệu vào bảng PostgreSQL.
 
@@ -128,20 +133,19 @@ def insert_csv_to_table(conn, auth_token, bucket_name, file_name, table_name, id
         None
     """
     try:
-        url = f"https://f005.backblazeb2.com/file/{bucket_name}/{file_name}?Authorization={auth_token}"
-        print(url)
-        # Tải file CSV từ URL
-        response = requests.get(url)
+        response = requests.get(
+            url["download_url_base"],
+            headers={"Authorization": url["authorization_token"]}
+        )
         response.raise_for_status()  # Kiểm tra lỗi HTTP
-        
-        # Chuyển nội dung CSV thành một đối tượng StringIO
-        csv_content = response.content.decode('utf-8')  # Giả định encoding là UTF-8
+        print(url)
+        # Chuyển nội dung CSV thành StringIO
+        csv_content = response.content.decode("utf-8")  # Giả định encoding là UTF-8
         csv_file = StringIO(csv_content)
-        print(csv_content)
 
         # Đọc file CSV bằng csv.reader
         reader = csv.reader(csv_file)
-        headers = next(reader)  # Đọc tiêu đề cột từ dòng đầu tiên
+        headers = next(reader)
 
         # Thêm các cột bổ sung
         extended_headers = headers + ["id_config", "dt_extract", "dt_load"]
@@ -162,7 +166,7 @@ def insert_csv_to_table(conn, auth_token, bucket_name, file_name, table_name, id
         # Lưu thay đổi
         conn.commit()
         print(f"Dữ liệu đã được chèn thành công vào bảng {table_name}.")
-        
+
     except requests.exceptions.RequestException as e:
         print(f"Lỗi khi tải file CSV từ URL: {e}")
     except psycopg2.DatabaseError as e:
@@ -171,12 +175,13 @@ def insert_csv_to_table(conn, auth_token, bucket_name, file_name, table_name, id
     except Exception as e:
         print(f"Lỗi khác: {e}")
 
+
 def transform_data(conn, table_name):
     """
     Hàm thay thế tất cả các giá trị NULL trong bảng thành:
     - 'N/A' cho các cột kiểu chuỗi.
     - -1 cho các cột kiểu số.
-    
+
     :param conn: Kết nối PostgreSQL.
     :param table_name: Tên bảng cần thay thế giá trị NULL.
     """
@@ -195,7 +200,7 @@ def transform_data(conn, table_name):
         quantity_available = COALESCE(quantity_available, -1),
         product_url = COALESCE(product_url, 'N/A');
     """
-    
+
     try:
         print(f"Đang Tranform bảng '{table_name}'...")
         with conn.cursor() as cur:
@@ -246,10 +251,11 @@ def update_status(conn, record_id, id_config, time_value, status):
         if cursor:
             cursor.close()
 
+
 def check_file_log(conn, id_config, date):
     """
     Hàm kiểm tra trong bảng `file_logs` có bản ghi nào có `id_config` là id_config nhập vào,
-    `time` là ngày nhập vào và `status` là 'Loading' hoặc 'LS'.
+    `time` là ngày nhập vào và `status` là 'RUNNING' hoặc 'LS'.
 
     :param conn: Kết nối PostgreSQL.
     :param id_config: Giá trị `id_config` cần kiểm tra.
@@ -257,12 +263,7 @@ def check_file_log(conn, id_config, date):
     :return: True nếu tồn tại bản ghi thỏa mãn, False nếu không.
     """
     query = """
-    SELECT 1
-    FROM file_logs
-    WHERE id_config = %s
-      AND time = %s
-      AND (status = 'Loading' OR status = 'LS' OR status != 'ES')
-    LIMIT 1
+    SELECT * FROM file_logs where id_config = %s and time = %s and status = 'ER'
     """
     try:
         with conn.cursor() as cur:
@@ -270,13 +271,14 @@ def check_file_log(conn, id_config, date):
             result = cur.fetchone()
             if result:
                 print(f"Có bản ghi thỏa mãn điều kiện trong file_logs.")
-                return True
+                return False
             else:
                 print(f"Không có bản ghi thỏa mãn điều kiện trong file_logs.")
-                return False
+                return True
     except Exception as e:
         print(f"Lỗi khi kiểm tra bản ghi trong file_logs: {e}")
         return False
+
 
 def check_csv_existed_in_b2(config_file, bucket_name, folder_name, csv_file_name):
     """
@@ -322,8 +324,9 @@ def check_csv_existed_in_b2(config_file, bucket_name, folder_name, csv_file_name
         return True
     except Exception:
         return False
-    
-def get_authorization_token(account_id, application_key, bucket_id, file_name_prefix, valid_duration_in_seconds=3600):
+
+
+def get_download_url(account_id, application_key, bucket_id, bucket_name, file_name_prefix, valid_duration_in_seconds=3600):
     try:
         # Bước 1: Authorize tài khoản
         auth_response = requests.get(
@@ -334,12 +337,12 @@ def get_authorization_token(account_id, application_key, bucket_id, file_name_pr
         auth_data = auth_response.json()
 
         # Lấy API URL và token
-        api_url = auth_data['apiUrl']
+        download_url_base = auth_data['downloadUrl']
         auth_token = auth_data['authorizationToken']
 
         # Bước 2: Lấy Download Authorization Token
         download_auth_response = requests.post(
-            f"{api_url}/b2api/v2/b2_get_download_authorization",
+            f"{auth_data['apiUrl']}/b2api/v2/b2_get_download_authorization",
             headers={"Authorization": auth_token},
             json={
                 "bucketId": bucket_id,
@@ -350,10 +353,15 @@ def get_authorization_token(account_id, application_key, bucket_id, file_name_pr
         download_auth_response.raise_for_status()
         download_auth_data = download_auth_response.json()
 
-        return download_auth_data['authorizationToken']
+        # Trả về URL cơ sở và token để dùng trong Header
+        return {
+            "download_url_base": f"{download_url_base}/file/{bucket_name}/{file_name_prefix}",
+            "authorization_token": download_auth_data['authorizationToken']
+        }
     except requests.exceptions.RequestException as e:
-        print(f"Lỗi khi lấy authorization token: {e}")
+        print(f"Lỗi khi lấy URL tải xuống: {e}")
         return None
+
 
 def send_email(to_email, subject, body):
     """
@@ -386,7 +394,19 @@ def send_email(to_email, subject, body):
     except Exception as e:
         print(f"Đã xảy ra lỗi khi gửi email: {e}")
 
-def insert_to_table_from_b2(conn, config_file, bucket_id, bucket_name, folder_name, file_name, table_name, id_config, dt_extract, dt_load):
+
+def insert_to_table_from_b2(
+    conn,
+    config_file,
+    bucket_id,
+    bucket_name,
+    folder_name,
+    file_name,
+    table_name,
+    id_config,
+    dt_extract,
+    dt_load,
+):
     """
     Download a CSV file from a specific folder in a Backblaze B2 bucket to a local directory.
 
@@ -407,9 +427,19 @@ def insert_to_table_from_b2(conn, config_file, bucket_id, bucket_name, folder_na
     key_id = root.find("./backblaze/key_id").text
     application_key = root.find("./backblaze/application_key").text
 
-    token = get_authorization_token(key_id, application_key, bucket_id, folder_name + "/" + file_name)
-    insert_csv_to_table(conn, token, bucket_name, file_name, table_name, id_config, dt_extract, dt_load)
+    # Initialize B2 API
+    info = InMemoryAccountInfo()
+    b2_api = B2Api(info)
 
+    # Authorize with B2
+    b2_api.authorize_account("production", key_id, application_key)
+
+    url = get_download_url(
+        key_id, application_key, bucket_id,bucket_name, folder_name + "/" + file_name
+    )
+    insert_csv_to_table(
+        conn, url, bucket_name, file_name, table_name, id_config, dt_extract, dt_load
+    )
 
 
 def main():
@@ -417,61 +447,89 @@ def main():
         print("Vui lòng nhập ít nhất 3 tham số: id_config, path_config, và db_name.")
         print("Cú pháp: python script.py <id_config> <path_config> [date]")
         sys.exit(1)
-    
+
     # Nhận tham số đầu vào
     id_config = sys.argv[1]
     path_config = sys.argv[2]
-    
+
     # Xử lý tham số ngày, mặc định là ngày hôm nay nếu không có đầu vào
     if len(sys.argv) > 3:
         date_str = sys.argv[3]
         try:
-            date = datetime.strptime(date_str, '%Y-%m-%d')
+            date = datetime.strptime(date_str, "%Y-%m-%d")
         except ValueError:
             print("Lỗi: Ngày không đúng định dạng YYYY-MM-DD.")
             sys.exit(1)
     else:
         date = datetime.today().strftime("%Y-%m-%d")
-    
+
     # In thông tin
     print(f"ID Config: {id_config}")
     print(f"Path Config: {path_config}")
     print(f"Date: {date}")
 
-    # 2.1. Load file config.xml 
+    # 2.1. Load file config.xml
     db_config = load_database_config("dw", path_config)
     try:
         # 2.2.Kết nối cơ sở dữ liệu dw
         conn = connect_to_database(db_config)
     except Exception as e:
         # 2.2.1.Gửi mail thông báo kết nối csdl dw thất bại
-        send_email(EMAIL, 'LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW', 'Lỗi phát hiện: {e}')
+        send_email(EMAIL, "LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW", "Lỗi phát hiện: {e}")
         sys.exit(1)
         return
-    
+
     # 2.3.Kiểm tra file log có tiến trình đang hoặc đã chạy hoặc không có file nào có trạng thái ES chưa
     exists = check_file_log(conn, id_config, date)
     if exists:
         # 2.3.1.Gửi mail thông báo có tiến trình đã/đang chạy hoặc không có file nào có status ES(sẵn sàng load)
-        send_email(EMAIL, 'LỖI TRONG QUÁ TRÌNH LOAD_TO_STAGING: NGÀY {date} | ID CONFIG: {id_config}', 'Lỗi phát hiện: Đã có tiến trình đang/đã chạy hoặc không có file sẵn sàng đưa vào staging')
+        send_email(
+            EMAIL,
+            "LỖI TRONG QUÁ TRÌNH LOAD_TO_STAGING: NGÀY {date} | ID CONFIG: {id_config}",
+            "Lỗi phát hiện: Đã có tiến trình đang/đã chạy hoặc không có file sẵn sàng đưa vào staging",
+        )
     else:
         # 2.4.Lấy thông tin file config
         file_info = fetch_file_info(conn, id_config, date)
+        print(f"data: {file_info}")
         # 2.5.Kiểm tra có tồn tại file .csv trên B2 theo thông tin của file config hay không
-        if not check_csv_existed_in_b2(path_config, file_info['bucket_name'], file_info['folder_b2_name'], file_info['file_name']):
+        if not check_csv_existed_in_b2(
+            path_config,
+            file_info["bucket_name"],
+            file_info["folder_b2_name"],
+            file_info["file_name"],
+        ):
             # 2.5.1.Gửi mail thông báo không tồn tại file theo file log
-            send_email(EMAIL, f"LỖI KẾT TRONG QUÁ TRÌNH LOAD_TO_STAGING: NGÀY {date} | ID CONFIG: {id_config}", f"Lỗi phát hiện: Không tìm thấy file {file_info['file_name']} trên Bucket {file_info['bucket_name']}")
+            send_email(
+                EMAIL,
+                f"LỖI KẾT TRONG QUÁ TRÌNH LOAD_TO_STAGING: NGÀY {date} | ID CONFIG: {id_config}",
+                f"Lỗi phát hiện: Không tìm thấy file {file_info['file_name']} trên Bucket {file_info['bucket_name']}",
+            )
         else:
-            # 2.6.Update file log sang status 'Loading'
-            update_status(conn, file_info['id'], id_config, file_info['time'], 'Loading')
+            # 2.6.Update file log sang status 'RUNNING'
+            update_status(
+                conn, file_info["id"], id_config, file_info["time"], "RUNNING"
+            )
             # 2.7. Insert từ file .csv  trên B2 vào bảng staging tương ứng theo file log
-            insert_to_table_from_b2(conn, path_config, file_info['bucket_id'], file_info['bucket_name'], file_info['folder_b2_name'], file_info['file_name'], file_info['destination_table_staging'], id_config, file_info['time'], date)
+            insert_to_table_from_b2(
+                conn,
+                path_config,
+                file_info["bucket_id"],
+                file_info["bucket_name"],
+                file_info["folder_b2_name"],
+                file_info["file_name"],
+                file_info["destination_table_staging"],
+                id_config,
+                file_info["time"],
+                date,
+            )
             # 2.8. Tiến hành transform các cột còn thiếu thành N/A
-            transform_data(conn, file_info['destination_table_staging'])
-            # 2.9. Update file log sang status là LS 
-            update_status(conn, file_info['id'], id_config, file_info['time'], 'LS')
+            transform_data(conn, file_info["destination_table_staging"])
+            # 2.9. Update file log sang status là LS
+            update_status(conn, file_info["id"], id_config, file_info["time"], "LS")
     # 2.10. Đóng kết nối csdl
     conn.close()
+
+
 if __name__ == "__main__":
     main()
-    

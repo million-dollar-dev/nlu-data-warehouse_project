@@ -9,50 +9,52 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-EMAIL = 'hoangtunqs134@gmail.com'
+EMAIL = "hoangtunqs134@gmail.com"
+
 
 def load_database_config(db_name, config_path):
     """
     Hàm đọc file config.xml và lấy thông tin kết nối cho database có tên cụ thể.
-    
+
     :param db_name: Tên cơ sở dữ liệu cần kết nối.
     :param config_path: Đường dẫn file config.xml.
     :return: Dictionary chứa thông tin kết nối.
     """
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"File config tại '{config_path}' không tồn tại.")
-    
+
     # Parse file XML
     tree = ET.parse(config_path)
     root = tree.getroot()
-    
+
     # Tìm thông tin database theo tên
     for db in root.findall(".//database"):
-        if db.get('name') == db_name:
+        if db.get("name") == db_name:
             return {
-                'hostname': db.find('hostname').text,
-                'port': db.find('port').text,
-                'database': db.find('database').text,
-                'username': db.find('username').text,
-                'password': db.find('password').text
+                "hostname": db.find("hostname").text,
+                "port": db.find("port").text,
+                "database": db.find("database").text,
+                "username": db.find("username").text,
+                "password": db.find("password").text,
             }
-    
+
     raise ValueError(f"Không tìm thấy database với tên '{db_name}' trong file config.")
+
 
 def connect_to_database(db_config):
     """
     Hàm kết nối tới cơ sở dữ liệu PostgreSQL dựa trên thông tin cấu hình.
-    
+
     :param db_config: Dictionary chứa thông tin kết nối.
     :return: Kết nối PostgreSQL (psycopg2 connection object).
     """
-    
+
     conn = psycopg2.connect(
-        host=db_config['hostname'],
-        port=db_config['port'],
-        database=db_config['database'],
-        user=db_config['username'],
-        password=db_config['password']
+        host=db_config["hostname"],
+        port=db_config["port"],
+        database=db_config["database"],
+        user=db_config["username"],
+        password=db_config["password"],
     )
     print("Kết nối cơ sở dữ liệu thành công.")
     return conn
@@ -61,7 +63,7 @@ def connect_to_database(db_config):
 def fetch_file_info(conn, id_config, date):
     """
     Hàm join hai bảng file_config và file_logs để truy vấn các bản ghi sẵn sàng load vào staging (status = 'ER').
-    
+
     :param conn: Kết nối PostgreSQL.
     :param id_config: ID Config cần lọc.
     :param date: Ngày cần lọc.
@@ -85,7 +87,7 @@ def fetch_file_info(conn, id_config, date):
         INNER JOIN file_config fc ON fl.id_config = fc.id
     WHERE fl.id_config = %s AND fl.time::date = %s AND fl.status = 'LS'
     """
-    
+
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(query, (id_config, date))
         results = cur.fetchall()
@@ -95,10 +97,11 @@ def fetch_file_info(conn, id_config, date):
         # Nếu không có kết quả, trả về dictionary rỗng
         return {}
 
+
 def truncate_table(conn, table_name):
     """
     Hàm để truncate (xóa toàn bộ dữ liệu) từ một bảng trong cơ sở dữ liệu.
-    
+
     :param conn: Kết nối PostgreSQL.
     :param table_name: Tên bảng cần truncate.
     :return: None
@@ -112,6 +115,7 @@ def truncate_table(conn, table_name):
     except Exception as e:
         print(f"Lỗi khi truncate bảng '{table_name}': {e}")
         conn.rollback()
+
 
 def insert_into_temp_dw(conn, id_config, date, table_staging):
     """
@@ -144,6 +148,7 @@ def insert_into_temp_dw(conn, id_config, date, table_staging):
         print(f"Lỗi khi chèn dữ liệu vào temp_dw: {e}")
         conn.rollback()
         return False
+
 
 def insert_news_into_dw(conn, dt_load_to_dw):
     """
@@ -211,6 +216,7 @@ def insert_news_into_dw(conn, dt_load_to_dw):
         # Đóng con trỏ
         if cursor:
             cursor.close()
+
 
 def insert_changed_into_dw(conn, dt_load_to_dw):
     """
@@ -291,17 +297,18 @@ WHERE
         if cursor:
             cursor.close()
 
+
 def update_news_dt_last_update(conn, date):
     """
     Cập nhật cột dt_last_update trong bảng dw với giá trị ngày được cung cấp.
-    
+
     :param conn: Kết nối cơ sở dữ liệu (psycopg2 connection object).
     :param date_param: Giá trị ngày cần cập nhật (str hoặc datetime, format 'YYYY-MM-DD').
     """
     try:
         # Tạo cursor để thực hiện truy vấn
         cursor = conn.cursor()
-        
+
         # Câu lệnh SQL UPDATE
         update_query = """
         UPDATE dw
@@ -322,37 +329,38 @@ def update_news_dt_last_update(conn, date):
             dw.product_url <> t.product_url
           );
         """
-        
+
         # Thực thi câu truy vấn với tham số ngày
         cursor.execute(update_query, (date,))
-        
+
         # Commit thay đổi
         conn.commit()
-        
+
         # In kết quả thành công
         print(f"Update completed. dt_last_update set to {date}.")
-    
+
     except Exception as e:
         # In thông báo lỗi nếu có
         print(f"Error occurred: {e}")
         # Rollback thay đổi nếu lỗi xảy ra
         conn.rollback()
-    
+
     finally:
         # Đóng cursor
         cursor.close()
+
 
 def update_dt_dim(conn):
     """
     Cập nhật giá trị cột dt_dim trong bảng dw với giá trị id từ bảng date_dim
     khi dt_extract trong bảng dw khớp với full_date trong bảng date_dim.
-    
+
     :param conn: Kết nối cơ sở dữ liệu (psycopg2 connection object).
     """
     try:
         # Tạo cursor để thực thi câu truy vấn
         cursor = conn.cursor()
-        
+
         # Câu lệnh SQL UPDATE
         update_query = """
         UPDATE dw
@@ -360,24 +368,25 @@ def update_dt_dim(conn):
         FROM date_dim
         WHERE dw.dt_extract = date_dim.full_date;
         """
-        
+
         # Thực thi câu lệnh SQL
         cursor.execute(update_query)
-        
+
         # Commit thay đổi vào cơ sở dữ liệu
         conn.commit()
-        
+
         # In thông báo thành công
         print("Cập nhật dt_dim thành công.")
-    
+
     except Exception as e:
         # Xử lý lỗi nếu có và rollback giao dịch
         print(f"Lỗi khi cập nhật: {e}")
         conn.rollback()
-    
+
     finally:
         # Đảm bảo đóng cursor sau khi thực thi
         cursor.close()
+
 
 def update_status(conn, record_id, status, id_config, time_value):
     """
@@ -418,10 +427,11 @@ def update_status(conn, record_id, status, id_config, time_value):
         if cursor:
             cursor.close()
 
+
 def check_file_log(conn, id_config, date):
     """
     Hàm kiểm tra trong bảng `file_logs` có bản ghi nào có `id_config` là id_config nhập vào,
-    `time` là ngày nhập vào và `status` là 'Loading' hoặc 'LS'.
+    `time` là ngày nhập vào và `status` là 'RUNNING' hoặc 'LS'.
 
     :param conn: Kết nối PostgreSQL.
     :param id_config: Giá trị `id_config` cần kiểm tra.
@@ -429,12 +439,7 @@ def check_file_log(conn, id_config, date):
     :return: True nếu tồn tại bản ghi thỏa mãn, False nếu không.
     """
     query = """
-    SELECT 1
-    FROM file_logs
-    WHERE id_config = %s
-      AND time = %s
-      AND (status = 'Loading' OR status = 'LWS' OR status != 'LS')
-    LIMIT 1
+    SELECT * FROM file_logs where id_config = %s and time = %s and status = 'LS'
     """
     try:
         with conn.cursor() as cur:
@@ -442,14 +447,15 @@ def check_file_log(conn, id_config, date):
             result = cur.fetchone()
             if result:
                 print(f"Có bản ghi thỏa mãn điều kiện trong file_logs.")
-                return True
+                return False
             else:
                 print(f"Không có bản ghi thỏa mãn điều kiện trong file_logs.")
-                return False
+                return True
     except Exception as e:
         print(f"Lỗi khi kiểm tra bản ghi trong file_logs: {e}")
         return False
-    
+
+
 def send_email(to_email, subject, body):
     """
     Gửi email qua Gmail SMTP.
@@ -481,33 +487,34 @@ def send_email(to_email, subject, body):
     except Exception as e:
         print(f"Đã xảy ra lỗi khi gửi email: {e}")
 
+
 def main():
     # Kiểm tra số lượng tham số đầu vào
     if len(sys.argv) < 3:
         print("Vui lòng nhập ít nhất 3 tham số: id_config, path_config, và db_name.")
         print("Cú pháp: python script.py <id_config> <path_config> [date]")
         sys.exit(1)
-    
+
     # Nhận tham số đầu vào
     id_config = sys.argv[1]
     path_config = sys.argv[2]
-    
+
     # Xử lý tham số ngày, mặc định là ngày hôm nay nếu không có đầu vào
     if len(sys.argv) > 3:
         date_str = sys.argv[3]
         try:
-            date = datetime.strptime(date_str, '%Y-%m-%d')
+            date = datetime.strptime(date_str, "%Y-%m-%d")
         except ValueError:
             print("Lỗi: Ngày không đúng định dạng YYYY-MM-DD.")
             sys.exit(1)
     else:
-        date = datetime.today().strftime('%Y-%m-%d')
-    
+        date = datetime.today().strftime("%Y-%m-%d")
+
     # In thông tin
     print(f"ID Config: {id_config}")
     print(f"Path Config: {path_config}")
     print(f"Date: {date}")
-    
+
     # 3.1. Load file config.xml
     db_config = load_database_config("dw", path_config)
     try:
@@ -515,22 +522,28 @@ def main():
         conn = connect_to_database(db_config)
     except Exception as e:
         # 3.2.1.Gửi mail thông báo kết nối csdl dw thất bại
-        send_email(EMAIL, 'LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW', 'Lỗi phát hiện: {e}')
+        send_email(EMAIL, "LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW", "Lỗi phát hiện: {e}")
         sys.exit(1)
         return
-    
+
     # 3.3.Kiểm tra có tiến trình đang/đã chạy hoặc không có dữ liệu sẵn sàng đưa vào dw hay không
     exists = check_file_log(conn, id_config, date)
     if exists:
         # 3.3.1.Gửi mail thông báo có tiến trình đang/đã chạy hoặc không có dữ liệu sẵn sàng đưa vào dw(status 'LS')
-        send_email(EMAIL, 'LỖI TRONG QUÁ TRÌNH LOAD_TO_DW: NGÀY {date} | ID CONFIG: {id_config}', 'Lỗi phát hiện: Đã có tiến trình đang/đã chạy hoặc không có file sẵn sàng đưa vào data warehouse')
+        send_email(
+            EMAIL,
+            "LỖI TRONG QUÁ TRÌNH LOAD_TO_DW: NGÀY {date} | ID CONFIG: {id_config}",
+            "Lỗi phát hiện: Đã có tiến trình đang/đã chạy hoặc không có file sẵn sàng đưa vào data warehouse",
+        )
     else:
         # 3.4.Lấy thông tin file log
         file_info = fetch_file_info(conn, id_config, date)
-        # 3.5.Cập nhật file log sang trạng thái 'Loading to dw'
-        update_status(conn, file_info['id'], 'Loading to dw', id_config, date)
+        # 3.5.Cập nhật file log sang trạng thái 'RUNNING'
+        update_status(conn, file_info["id"], "RUNNING", id_config, date)
         # 3.6.Insert dữ liệu ngày tương ứng từ bảng staging sang temp_dw
-        insert_into_temp_dw(conn, id_config, date, file_info['destination_table_staging'])
+        insert_into_temp_dw(
+            conn, id_config, date, file_info["destination_table_staging"]
+        )
         # 3.7.Insert dữ liệu mới (chưa có bên dw) từ bảng temp_dw vào dw với dt_last_update là '9999-12-31'
         insert_news_into_dw(conn, date)
         # 3.8.Cập nhật dt_last_update các record có giá trị thay đổi
@@ -540,9 +553,9 @@ def main():
         # 3.10.Update cột dt_dim theo ngày của date_dim
         update_dt_dim(conn)
         # 3.11.Truncate bảng temp_dw
-        truncate_table(conn, 'temp_dw')
-        #3.12.Cập nhật file log sang trạng thái 'LWS'
-        update_status(conn, file_info['id'], 'LWS', id_config, date)
+        truncate_table(conn, "temp_dw")
+        # 3.12.Cập nhật file log sang trạng thái 'LWS'
+        update_status(conn, file_info["id"], "LWS", id_config, date)
     # 3.13.Đóng kết nối
     conn.close()
 
