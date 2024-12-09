@@ -16,7 +16,7 @@ from email.mime.multipart import MIMEMultipart
 from b2sdk.v2 import InMemoryAccountInfo, B2Api
 from io import StringIO
 
-EMAIL = "hoangtunqs134@gmail.com"
+EMAIL = os.getenv("MY_EMAIL_DW_VAR")
 
 
 def load_database_config(db_name, config_path):
@@ -147,8 +147,12 @@ def insert_csv_to_table(
         reader = csv.reader(csv_file)
         headers = next(reader)
 
+        # Kiểm tra cột product_name và sku
+        if "product_name" not in headers or "sku" not in headers:
+            raise ValueError("CSV thiếu cột 'product_name' hoặc 'sku'.")
+
         # Thêm các cột bổ sung
-        extended_headers = headers + ["id_config", "dt_extract", "dt_load"]
+        extended_headers = headers + ["natural_key", "id_config", "dt_extract", "dt_load"]
 
         # Tạo chuỗi truy vấn SQL
         placeholders = ", ".join(["%s"] * len(extended_headers))
@@ -160,7 +164,15 @@ def insert_csv_to_table(
         # Chèn dữ liệu vào bảng
         cursor = conn.cursor()
         for row in reader:
-            extended_row = row + [id_config, dt_extract, dt_load]
+            # Tìm vị trí của product_name và sku
+            product_name_index = headers.index("product_name")
+            sku_index = headers.index("sku")
+            
+            # Tạo giá trị natural_key
+            natural_key = f"{row[product_name_index]}-{row[sku_index]}"
+            
+            # Mở rộng hàng với giá trị mới
+            extended_row = row + [natural_key, id_config, dt_extract, dt_load]
             cursor.execute(query, extended_row)
 
         # Lưu thay đổi
@@ -178,15 +190,18 @@ def insert_csv_to_table(
 
 def transform_data(conn, table_name):
     """
-    Hàm thay thế tất cả các giá trị NULL trong bảng thành:
-    - 'N/A' cho các cột kiểu chuỗi.
-    - -1 cho các cột kiểu số.
+    Hàm thực hiện hai chức năng trên bảng:
+    1. Thay thế tất cả các giá trị NULL trong bảng thành:
+       - 'N/A' cho các cột kiểu chuỗi.
+       - -1 cho các cột kiểu số.
+    2. Loại bỏ các dòng trùng lặp dựa trên natural_key, chỉ giữ lại một dòng.
 
     :param conn: Kết nối PostgreSQL.
-    :param table_name: Tên bảng cần thay thế giá trị NULL.
+    :param table_name: Tên bảng cần xử lý.
+    :param natural_key: Cột dùng để xác định trùng lặp.
     """
     # Câu truy vấn thay thế NULL
-    query = f"""
+    query_replace_null = f"""
     UPDATE {table_name}
     SET 
         sku = COALESCE(sku, 'N/A'),
@@ -200,15 +215,33 @@ def transform_data(conn, table_name):
         quantity_available = COALESCE(quantity_available, -1),
         product_url = COALESCE(product_url, 'N/A');
     """
+    
+    # Câu truy vấn loại bỏ trùng lặp
+    query_remove_duplicates = f"""
+    DELETE FROM {table_name}
+    WHERE ctid NOT IN (
+        SELECT MIN(ctid)
+        FROM {table_name}
+        GROUP BY natural_key
+    );
+    """
 
     try:
-        print(f"Đang Tranform bảng '{table_name}'...")
         with conn.cursor() as cur:
-            cur.execute(query)  # Thực thi câu truy vấn
-            conn.commit()  # Ghi nhận thay đổi
-            print(f"Đã Tranform bảng '{table_name}'.")
+            # Bước 1: Thay thế giá trị NULL
+            print(f"Đang thay thế giá trị NULL trong bảng '{table_name}'...")
+            cur.execute(query_replace_null)
+            print(f"Hoàn tất thay thế giá trị NULL trong bảng '{table_name}'.")
+
+            # Bước 2: Loại bỏ dòng trùng lặp
+            print(f"Đang loại bỏ các dòng trùng lặp trong bảng '{table_name}'...")
+            cur.execute(query_remove_duplicates)
+            print(f"Hoàn tất loại bỏ dòng trùng lặp trong bảng '{table_name}'.")
+
+            # Ghi nhận thay đổi
+            conn.commit()
     except Exception as e:
-        print(f"Lỗi khi thay thế giá trị NULL: {e}")
+        print(f"Lỗi khi xử lý bảng '{table_name}': {e}")
         conn.rollback()  # Quay lại trạng thái trước đó nếu có lỗi
 
 
@@ -263,7 +296,7 @@ def check_file_log(conn, id_config, date):
     :return: True nếu tồn tại bản ghi thỏa mãn, False nếu không.
     """
     query = """
-    SELECT * FROM file_logs where id_config = %s and time = %s and status = 'ER'
+    SELECT * FROM file_logs where id_config = %s and time = %s and status = 'ES'
     """
     try:
         with conn.cursor() as cur:
@@ -475,7 +508,7 @@ def main():
         conn = connect_to_database(db_config)
     except Exception as e:
         # 2.2.1.Gửi mail thông báo kết nối csdl dw thất bại
-        send_email(EMAIL, "LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW", "Lỗi phát hiện: {e}")
+        send_email(EMAIL, f"LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW NGÀY {date}", f"Lỗi phát hiện: {e}")
         sys.exit(1)
         return
 
@@ -485,8 +518,8 @@ def main():
         # 2.3.1.Gửi mail thông báo có tiến trình đã/đang chạy hoặc không có file nào có status ES(sẵn sàng load)
         send_email(
             EMAIL,
-            "LỖI TRONG QUÁ TRÌNH LOAD_TO_STAGING: NGÀY {date} | ID CONFIG: {id_config}",
-            "Lỗi phát hiện: Đã có tiến trình đang/đã chạy hoặc không có file sẵn sàng đưa vào staging",
+            f"LỖI TRONG QUÁ TRÌNH LOAD_TO_STAGING: NGÀY {date} | ID CONFIG: {id_config}",
+            f"Lỗi phát hiện: Đã có tiến trình đang/đã chạy hoặc không có file sẵn sàng đưa vào staging",
         )
     else:
         # 2.4.Lấy thông tin file config
@@ -523,7 +556,7 @@ def main():
                 file_info["time"],
                 date,
             )
-            # 2.8. Tiến hành transform các cột còn thiếu thành N/A
+            # 2.8. Tiến hành transform các cột còn thiếu thành N/A và bỏ các dòng trùng
             transform_data(conn, file_info["destination_table_staging"])
             # 2.9. Update file log sang status là LS
             update_status(conn, file_info["id"], id_config, file_info["time"], "LS")

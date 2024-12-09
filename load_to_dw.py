@@ -9,7 +9,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-EMAIL = "hoangtunqs134@gmail.com"
+EMAIL = os.getenv("MY_EMAIL_DW_VAR")
 
 
 def load_database_config(db_name, config_path):
@@ -522,7 +522,7 @@ def main():
         conn = connect_to_database(db_config)
     except Exception as e:
         # 3.2.1.Gửi mail thông báo kết nối csdl dw thất bại
-        send_email(EMAIL, "LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW", "Lỗi phát hiện: {e}")
+        send_email(EMAIL, f"LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW NGÀY {date}", f"Lỗi phát hiện: {e}")
         sys.exit(1)
         return
 
@@ -532,8 +532,8 @@ def main():
         # 3.3.1.Gửi mail thông báo có tiến trình đang/đã chạy hoặc không có dữ liệu sẵn sàng đưa vào dw(status 'LS')
         send_email(
             EMAIL,
-            "LỖI TRONG QUÁ TRÌNH LOAD_TO_DW: NGÀY {date} | ID CONFIG: {id_config}",
-            "Lỗi phát hiện: Đã có tiến trình đang/đã chạy hoặc không có file sẵn sàng đưa vào data warehouse",
+            f"LỖI TRONG QUÁ TRÌNH LOAD_TO_DW: NGÀY {date} | ID CONFIG: {id_config}",
+            f"Lỗi phát hiện: Đã có tiến trình đang/đã chạy hoặc không có file sẵn sàng đưa vào data warehouse",
         )
     else:
         # 3.4.Lấy thông tin file log

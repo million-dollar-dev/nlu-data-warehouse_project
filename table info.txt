@@ -1,19 +1,21 @@
-CREATE TABLE matkinh_daily
+create table matkinh_daily
 (
-    natural_key        VARCHAR(355) PRIMARY KEY,
-    sku                VARCHAR(100),
-    product_name       VARCHAR(255),
-    price              INTEGER,
-    brand              VARCHAR(100),
-    material           VARCHAR(100),
-    shape              VARCHAR(50),
-    dimension          VARCHAR(50),
-    origin             VARCHAR(50),
-    quantity_available INTEGER,
-    product_url        TEXT,
-    id_config          INTEGER,
-    dt_extract         DATE,
-    dt_load            DATE
+    surrogate_key      serial
+        primary key,
+    natural_key        varchar(355),
+    sku                varchar(100),
+    product_name       varchar(255),
+    price              integer,
+    brand              varchar(100),
+    material           varchar(100),
+    shape              varchar(50),
+    dimension          varchar(50),
+    origin             varchar(50),
+    quantity_available integer,
+    product_url        text,
+    id_config          integer,
+    dt_extract         date,
+    dt_load            date
 );
 
 create table date_dim

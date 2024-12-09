@@ -16,7 +16,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from b2sdk.v2 import InMemoryAccountInfo, B2Api
 
-EMAIL = "hoangtunqs134@gmail.com"
+EMAIL = os.getenv("MY_EMAIL_DW_VAR")
 
 
 # Hàm lấy danh sách link sản phẩm từ trang danh mục
@@ -98,7 +98,7 @@ def get_product_details(product_url):
 def scrape_all_products_to_csv(source_file_location, name):
     all_products = []
     base_url = "https://kinhmatviettin.vn/product-categories/gong-kinh?pages="
-    total_pages = 2  # Số trang cần duyệt
+    total_pages = 3  # Số trang cần duyệt
     # Lấy ngày hiện tại để tạo tên file
     current_date = datetime.now().strftime("%Y-%m-%d")
     # Lấy phần domain của base_url cho tên file
@@ -114,7 +114,7 @@ def scrape_all_products_to_csv(source_file_location, name):
     csv_filepath = os.path.join(source_file_location, csv_filename)
 
     # Lặp qua từng trang danh mục
-    for page in range(1, total_pages + 1):
+    for page in range(2, total_pages + 1):
         page_url = f"{base_url}{page}"
         print(f"Lấy thông tin sản phẩm từ trang: {page_url}")
 
@@ -463,7 +463,7 @@ def main():
         conn = connect_to_database(db_config)
     except Exception as e:
         # 1.2.1. Gửi mail thông lỗi kết nối csdl dw
-        send_email(EMAIL, "LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW", "Lỗi phát hiện: {e}")
+        send_email(EMAIL, f"LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW {date}", f"Lỗi phát hiện: {e}")
         sys.exit(1)
         return
 
@@ -473,8 +473,8 @@ def main():
         # 1.3.1. Gửi mail thông báo có tiến trình đã/đang chạy
         send_email(
             EMAIL,
-            "LỖI TRONG QUÁ TRÌNH EXTRACT_FILE: NGÀY {date} | ID CONFIG: {id_config}",
-            "Lỗi phát hiện: Đã có tiến trình đang/đã chạy",
+            f"LỖI TRONG QUÁ TRÌNH EXTRACT_FILE: NGÀY {date} | ID CONFIG: {id_config}",
+            f"Lỗi phát hiện: Đã có tiến trình đang/đã chạy",
         )
     else:
         # 1.4.Lấy thông tin file config
@@ -531,8 +531,8 @@ def main():
             # 1.6.2.Gửi mail thông báo cào thất bại
             send_email(
                 EMAIL,
-                "LỖI KẾT TRONG QUÁ TRÌNH CÀO DỮ LIỆU: NGÀY {date} | ID CONFIG: {id_config}",
-                "Lỗi phát hiện: {e}",
+                f"LỖI KẾT TRONG QUÁ TRÌNH CÀO DỮ LIỆU: NGÀY {date} | ID CONFIG: {id_config}",
+                f"Lỗi phát hiện: {e}",
             )
     # 1.10. Đóng kết nối csdl
     conn.close()
