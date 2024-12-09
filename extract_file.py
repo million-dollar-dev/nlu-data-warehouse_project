@@ -9,6 +9,7 @@ import subprocess
 from datetime import datetime
 import xml.etree.ElementTree as ET
 import psycopg2
+import time
 from psycopg2 import extras
 import csv
 import smtplib
@@ -95,16 +96,16 @@ def get_product_details(product_url):
 
 
 # Hàm chính để duyệt qua các trang danh mục và cào dữ liệu tất cả sản phẩm
-def scrape_all_products_to_csv(source_file_location, name):
+def scrape_all_products_to_csv(source_file_location, name, id_config):
     all_products = []
     base_url = "https://kinhmatviettin.vn/product-categories/gong-kinh?pages="
-    total_pages = 3  # Số trang cần duyệt
+    total_pages = 4  # Số trang cần duyệt
     # Lấy ngày hiện tại để tạo tên file
     current_date = datetime.now().strftime("%Y-%m-%d")
     # Lấy phần domain của base_url cho tên file
     domain_name = base_url.split("//")[1].split("/")[0]
     # Tạo tên file theo format yêu cầu
-    csv_filename = f"data_{name}_{current_date}_{domain_name}.csv"
+    csv_filename = f"data_{id_config}_{name}_{current_date}_{domain_name}.csv"
 
     # Đảm bảo rằng thư mục lưu file tồn tại, nếu không tạo mới
     if not os.path.exists(source_file_location):
@@ -114,7 +115,7 @@ def scrape_all_products_to_csv(source_file_location, name):
     csv_filepath = os.path.join(source_file_location, csv_filename)
 
     # Lặp qua từng trang danh mục
-    for page in range(2, total_pages + 1):
+    for page in range(4, total_pages + 1):
         page_url = f"{base_url}{page}"
         print(f"Lấy thông tin sản phẩm từ trang: {page_url}")
 
@@ -462,10 +463,21 @@ def main():
         # 1.2. Kết nối cơ sở dữ liệu controls
         conn = connect_to_database(db_config)
     except Exception as e:
-        # 1.2.1. Gửi mail thông lỗi kết nối csdl dw
-        send_email(EMAIL, f"LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW {date}", f"Lỗi phát hiện: {e}")
-        sys.exit(1)
-        return
+        attemps = 0
+        while attemps < 5:
+            try:
+                conn = connect_to_database(db_config)
+            except psycopg2.OperationalError as e:
+                attempts += 1
+                print('kết nối l')
+                if attempts < 5:
+                    print('thử kết nối lại')
+                    time.sleep(10)
+                else:
+                    # 1.2.1. Gửi mail thông lỗi kết nối csdl dw
+                    send_email(EMAIL, f"LỖI KẾT NỐI CƠ SỞ DỮ LIỆU DW {date}", f"Lỗi phát hiện: {e}")
+                    sys.exit(1)
+                    return
 
     # 1.3. Kiểm tra file logs có tiến trình đã chạy hoặc đang chạy hay không
     exists = check_file_log(conn, id_config, date)
@@ -495,6 +507,7 @@ def main():
             file_name = scrape_all_products_to_csv(
                 file_config["source_file_location"],
                 file_config["destination_table_staging"],
+                id_config
             )
             # 1.7.Lấy thông tin file vào cào về
             info_file_csv = get_csv_file_info(
